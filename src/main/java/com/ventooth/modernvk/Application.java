@@ -14,16 +14,21 @@ import org.lwjgl.util.vma.VmaAllocatorCreateInfo;
 import org.lwjgl.util.vma.VmaVulkanFunctions;
 import org.lwjgl.vulkan.VK;
 import org.lwjgl.vulkan.VkApplicationInfo;
+import org.lwjgl.vulkan.VkCommandBuffer;
 import org.lwjgl.vulkan.VkCommandBufferAllocateInfo;
+import org.lwjgl.vulkan.VkCommandBufferBeginInfo;
+import org.lwjgl.vulkan.VkCommandBufferSubmitInfo;
 import org.lwjgl.vulkan.VkCommandPoolCreateInfo;
 import org.lwjgl.vulkan.VkDebugUtilsMessengerCallbackDataEXT;
 import org.lwjgl.vulkan.VkDebugUtilsMessengerCallbackEXT;
 import org.lwjgl.vulkan.VkDebugUtilsMessengerCreateInfoEXT;
+import org.lwjgl.vulkan.VkDependencyInfo;
 import org.lwjgl.vulkan.VkDevice;
 import org.lwjgl.vulkan.VkDeviceCreateInfo;
 import org.lwjgl.vulkan.VkDeviceQueueCreateInfo;
 import org.lwjgl.vulkan.VkGraphicsPipelineCreateInfo;
 import org.lwjgl.vulkan.VkImageCreateInfo;
+import org.lwjgl.vulkan.VkImageMemoryBarrier2;
 import org.lwjgl.vulkan.VkImageViewCreateInfo;
 import org.lwjgl.vulkan.VkInstance;
 import org.lwjgl.vulkan.VkInstanceCreateInfo;
@@ -46,14 +51,22 @@ import org.lwjgl.vulkan.VkPipelineRenderingCreateInfo;
 import org.lwjgl.vulkan.VkPipelineShaderStageCreateInfo;
 import org.lwjgl.vulkan.VkPipelineVertexInputStateCreateInfo;
 import org.lwjgl.vulkan.VkPipelineViewportStateCreateInfo;
+import org.lwjgl.vulkan.VkPresentInfoKHR;
 import org.lwjgl.vulkan.VkQueue;
 import org.lwjgl.vulkan.VkQueueFamilyProperties2;
+import org.lwjgl.vulkan.VkRect2D;
+import org.lwjgl.vulkan.VkRenderingAttachmentInfo;
+import org.lwjgl.vulkan.VkRenderingInfo;
 import org.lwjgl.vulkan.VkSemaphoreCreateInfo;
+import org.lwjgl.vulkan.VkSemaphoreSubmitInfo;
 import org.lwjgl.vulkan.VkSemaphoreTypeCreateInfo;
+import org.lwjgl.vulkan.VkSemaphoreWaitInfo;
 import org.lwjgl.vulkan.VkShaderModuleCreateInfo;
+import org.lwjgl.vulkan.VkSubmitInfo2;
 import org.lwjgl.vulkan.VkSurfaceCapabilitiesKHR;
 import org.lwjgl.vulkan.VkSurfaceFormatKHR;
 import org.lwjgl.vulkan.VkSwapchainCreateInfoKHR;
+import org.lwjgl.vulkan.VkViewport;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -118,15 +131,24 @@ import static org.lwjgl.vulkan.KHRSurface.vkDestroySurfaceKHR;
 import static org.lwjgl.vulkan.KHRSurface.vkGetPhysicalDeviceSurfaceCapabilitiesKHR;
 import static org.lwjgl.vulkan.KHRSurface.vkGetPhysicalDeviceSurfaceFormatsKHR;
 import static org.lwjgl.vulkan.KHRSurface.vkGetPhysicalDeviceSurfaceSupportKHR;
+import static org.lwjgl.vulkan.KHRSwapchain.VK_ERROR_OUT_OF_DATE_KHR;
+import static org.lwjgl.vulkan.KHRSwapchain.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 import static org.lwjgl.vulkan.KHRSwapchain.VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+import static org.lwjgl.vulkan.KHRSwapchain.VK_SUBOPTIMAL_KHR;
+import static org.lwjgl.vulkan.KHRSwapchain.vkAcquireNextImageKHR;
 import static org.lwjgl.vulkan.KHRSwapchain.vkCreateSwapchainKHR;
 import static org.lwjgl.vulkan.KHRSwapchain.vkDestroySwapchainKHR;
 import static org.lwjgl.vulkan.KHRSwapchain.vkGetSwapchainImagesKHR;
+import static org.lwjgl.vulkan.KHRSwapchain.vkQueuePresentKHR;
+import static org.lwjgl.vulkan.VK10.VK_ATTACHMENT_LOAD_OP_CLEAR;
+import static org.lwjgl.vulkan.VK10.VK_ATTACHMENT_STORE_OP_DONT_CARE;
+import static org.lwjgl.vulkan.VK10.VK_ATTACHMENT_STORE_OP_STORE;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_A_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_B_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_G_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_R_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+import static org.lwjgl.vulkan.VK10.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COMPARE_OP_LESS;
 import static org.lwjgl.vulkan.VK10.VK_CULL_MODE_BACK_BIT;
 import static org.lwjgl.vulkan.VK10.VK_DYNAMIC_STATE_SCISSOR;
@@ -137,13 +159,16 @@ import static org.lwjgl.vulkan.VK10.VK_FORMAT_D32_SFLOAT;
 import static org.lwjgl.vulkan.VK10.VK_FRONT_FACE_COUNTER_CLOCKWISE;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_ASPECT_COLOR_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_ASPECT_DEPTH_BIT;
+import static org.lwjgl.vulkan.VK10.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_LAYOUT_UNDEFINED;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_TILING_OPTIMAL;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_TYPE_2D;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_VIEW_TYPE_2D;
+import static org.lwjgl.vulkan.VK10.VK_NULL_HANDLE;
 import static org.lwjgl.vulkan.VK10.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+import static org.lwjgl.vulkan.VK10.VK_PIPELINE_BIND_POINT_GRAPHICS;
 import static org.lwjgl.vulkan.VK10.VK_POLYGON_MODE_FILL;
 import static org.lwjgl.vulkan.VK10.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 import static org.lwjgl.vulkan.VK10.VK_QUEUE_GRAPHICS_BIT;
@@ -153,6 +178,11 @@ import static org.lwjgl.vulkan.VK10.VK_SHADER_STAGE_VERTEX_BIT;
 import static org.lwjgl.vulkan.VK10.VK_SUCCESS;
 import static org.lwjgl.vulkan.VK10.VK_TRUE;
 import static org.lwjgl.vulkan.VK10.vkAllocateCommandBuffers;
+import static org.lwjgl.vulkan.VK10.vkBeginCommandBuffer;
+import static org.lwjgl.vulkan.VK10.vkCmdBindPipeline;
+import static org.lwjgl.vulkan.VK10.vkCmdDraw;
+import static org.lwjgl.vulkan.VK10.vkCmdSetScissor;
+import static org.lwjgl.vulkan.VK10.vkCmdSetViewport;
 import static org.lwjgl.vulkan.VK10.vkCreateCommandPool;
 import static org.lwjgl.vulkan.VK10.vkCreateDevice;
 import static org.lwjgl.vulkan.VK10.vkCreateGraphicsPipelines;
@@ -170,12 +200,27 @@ import static org.lwjgl.vulkan.VK10.vkDestroyPipelineLayout;
 import static org.lwjgl.vulkan.VK10.vkDestroySemaphore;
 import static org.lwjgl.vulkan.VK10.vkDestroyShaderModule;
 import static org.lwjgl.vulkan.VK10.vkDeviceWaitIdle;
+import static org.lwjgl.vulkan.VK10.vkEndCommandBuffer;
 import static org.lwjgl.vulkan.VK10.vkEnumeratePhysicalDevices;
 import static org.lwjgl.vulkan.VK10.vkGetDeviceQueue;
 import static org.lwjgl.vulkan.VK10.vkGetPhysicalDeviceProperties;
+import static org.lwjgl.vulkan.VK10.vkResetCommandPool;
 import static org.lwjgl.vulkan.VK11.vkGetPhysicalDeviceFeatures2;
 import static org.lwjgl.vulkan.VK11.vkGetPhysicalDeviceQueueFamilyProperties2;
+import static org.lwjgl.vulkan.VK12.VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 import static org.lwjgl.vulkan.VK12.VK_SEMAPHORE_TYPE_TIMELINE;
+import static org.lwjgl.vulkan.VK12.vkWaitSemaphores;
+import static org.lwjgl.vulkan.VK13.VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+import static org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+import static org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+import static org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+import static org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
+import static org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+import static org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_NONE;
+import static org.lwjgl.vulkan.VK13.vkCmdBeginRendering;
+import static org.lwjgl.vulkan.VK13.vkCmdEndRendering;
+import static org.lwjgl.vulkan.VK13.vkCmdPipelineBarrier2;
+import static org.lwjgl.vulkan.VK13.vkQueueSubmit2;
 import static org.lwjgl.vulkan.VK14.VK_API_VERSION_1_4;
 
 @NoArgsConstructor
@@ -189,9 +234,8 @@ public final class Application {
     private /*(SDL_Window*)*/ long window = NULL;
     private int width = 1280;
     private int height = 720;
-    private boolean running = false;
-    //    uint64_t frameIndex = 0;
-    //    uint64_t nextSignalValue = MaxFramesInFlight + 1;
+    private long frameIndex = 0;
+    private long nextSignalValue = MaxFramesInFlight + 1;
 
     // vulkan core
     private @Nullable VkDebugUtilsMessengerCallbackEXT debugCallback;
@@ -211,7 +255,7 @@ public final class Application {
     private /*(VkImageView[])*/ long @Nullable [] swapchainImageViews = null;
     private /*(VkSemaphore[])*/ long @Nullable [] renderCompleteSemaphores = null;
 
-    //	bool requireSwapchainRecreate = false;
+    private boolean requireSwapchainRecreate = false;
     private int swapchainWidth = -1;
     private int swapchainHeight = -1;
 
@@ -243,15 +287,11 @@ public final class Application {
             return false;
         }
 
-        if (!initializeVulkan()) {
-            return false;
-        }
-
-        return true;
+        return initializeVulkan();
     }
 
     public void run() {
-        running = true;
+        var running = true;
         @Cleanup val stack = MemoryStack.stackPush();
 
         val event = SDL_Event.calloc(stack);
@@ -264,7 +304,7 @@ public final class Application {
                     val windowData = event.window();
                     width = windowData.data1();
                     height = windowData.data2();
-                    break;
+                    break; // TODO: Should this be break?
                 }
             }
 
@@ -294,7 +334,7 @@ public final class Application {
                 if (res.commandPool != NULL) {
                     vkDestroyCommandPool(device, res.commandPool, null); // destroys buffers implicitly
                     res.commandPool = NULL;
-                    res.commandBuffer = NULL;
+                    res.commandBuffer = null;
                 }
             }
             frameResources = null;
@@ -718,7 +758,8 @@ public final class Application {
                                                   .sType$Default()
                                                   .pNext(enabledFeatures)
                                                   .pQueueCreateInfos(gfxQueueInfos)
-                                                  .ppEnabledExtensionNames(extensions);
+                                                  .ppEnabledExtensionNames(extensions)
+                                                  .pEnabledFeatures(null);
             val ptr = stack.callocPointer(1);
             if (vkCreateDevice(physicalDevice, devCreateInfo, null, ptr) != VK_SUCCESS) {
                 return false;
@@ -1127,7 +1168,7 @@ public final class Application {
                     .pColorBlendState(blendInfo)
                     .pDynamicState(dynamicStateInfo)
                     .layout(pipelineLayout)
-                    .renderPass(NULL);
+                    .renderPass(VK_NULL_HANDLE);
 
         val ptr = stack.callocLong(1);
         if (vkCreateGraphicsPipelines(device, NULL, pipelineInfo, null, ptr) != VK_SUCCESS) {
@@ -1216,7 +1257,7 @@ public final class Application {
                     showError("Unable to allocate command buffer");
                     return false;
                 }
-                res.commandBuffer = ptr.get(0);
+                res.commandBuffer = new VkCommandBuffer(ptr.get(0), device);
             }
         }
 
@@ -1224,7 +1265,261 @@ public final class Application {
     }
 
     private void render() {
+        assert device != null;
+        assert gfxQueue != null;
+        assert frameResources != null;
+        assert swapchainImages != null;
+        assert swapchainImageViews != null;
+        assert renderCompleteSemaphores != null;
 
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        // first check if our swapchain is still valid
+        if (requireSwapchainRecreate) {
+            vkDeviceWaitIdle(device);
+            destroySwapchain();
+            createSwapchain();
+            requireSwapchainRecreate = false;
+        }
+
+        val frameResIndex = (int) (frameIndex++ % MaxFramesInFlight);
+        val signalValue = nextSignalValue++;
+        val waitValue = signalValue - MaxFramesInFlight;
+
+        // Wait on timeline
+        {
+            val waitInfo = VkSemaphoreWaitInfo.calloc(stack)
+                                              .sType$Default()
+                                              .semaphoreCount(1)
+                                              .pSemaphores(stack.longs(timelineSemaphore))
+                                              .pValues(stack.longs(waitValue));
+            vkWaitSemaphores(device, waitInfo, Long.MAX_VALUE);
+        }
+
+        // Get the resources for this frame
+        final FrameResources res;
+        {
+            res = frameResources[frameResIndex];
+            assert res.commandPool != NULL;
+            assert res.commandBuffer != null;
+            assert res.imageAcquiredSemaphore != NULL;
+        }
+
+        // Now it's safe to start recording commands
+        vkResetCommandPool(device, res.commandPool, 0);
+
+        // Figure out what image in the swapchain is next
+        final int imageIndex;
+        final long swapchainImage;
+        final long swapchainImageView;
+        final long renderCompleteSemaphore;
+        {
+            val ptr = stack.callocInt(1);
+            val acquireResult = vkAcquireNextImageKHR(device,
+                                                      swapchain,
+                                                      Long.MAX_VALUE,
+                                                      res.imageAcquiredSemaphore,
+                                                      VK_NULL_HANDLE,
+                                                      ptr);
+            imageIndex = ptr.get(0);
+
+            // Handle resize and out-of-date images, may need swapchain recreate
+            switch (acquireResult) {
+                case VK_ERROR_OUT_OF_DATE_KHR -> {
+                    // Bail now
+                    requireSwapchainRecreate = true;
+                    return;
+                }
+                // Can render this frame, recreate next time around
+                case VK_SUBOPTIMAL_KHR -> requireSwapchainRecreate = true;
+            }
+
+            swapchainImage = swapchainImages[imageIndex];
+            swapchainImageView = swapchainImageViews[imageIndex];
+            renderCompleteSemaphore = renderCompleteSemaphores[imageIndex];
+
+            assert swapchainImage != NULL;
+            assert swapchainImageView != NULL;
+            assert renderCompleteSemaphore != NULL;
+        }
+
+        // Begin recording commands
+        val cmdBeginInfo = VkCommandBufferBeginInfo.calloc(stack)
+                                                   .sType$Default()
+                                                   .flags(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+        vkBeginCommandBuffer(res.commandBuffer, cmdBeginInfo);
+
+        // Transition the color and depth images
+        final VkDependencyInfo depInfo;
+        {
+            val layoutBarriers = VkImageMemoryBarrier2.calloc(2, stack);
+            layoutBarriers.forEach(VkImageMemoryBarrier2::sType$Default);
+            //noinspection resource
+            layoutBarriers.get(0) // Color Barrier
+                          .srcStageMask(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT)
+                          .srcAccessMask(0)
+                          .dstStageMask(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT)
+                          .dstAccessMask(VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT)
+                          .oldLayout(VK_IMAGE_LAYOUT_UNDEFINED)
+                          .newLayout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+                          .image(swapchainImage)
+                          .subresourceRange(s -> s.aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)
+                                                  .baseMipLevel(0)
+                                                  .levelCount(1)
+                                                  .baseArrayLayer(0)
+                                                  .layerCount(1));
+            //noinspection resource
+            layoutBarriers.get(1) // Depth Barrier
+                          .srcStageMask(VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT)
+                          .srcAccessMask(0)
+                          // Both specified to control memory access at both stages (write)
+                          .dstStageMask(VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                                        VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT)
+                          .dstAccessMask(VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT)
+                          .oldLayout(VK_IMAGE_LAYOUT_UNDEFINED)
+                          .newLayout(VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
+                          .image(depthImage)
+                          .subresourceRange(s -> s.aspectMask(VK_IMAGE_ASPECT_DEPTH_BIT)
+                                                  .baseMipLevel(0)
+                                                  .levelCount(1)
+                                                  .baseArrayLayer(0)
+                                                  .layerCount(1));
+            depInfo = VkDependencyInfo.calloc(stack)
+                                      .sType$Default()
+                                      .pImageMemoryBarriers(layoutBarriers);
+        }
+        vkCmdPipelineBarrier2(res.commandBuffer, depInfo);
+
+        // Setup attachments (color and depth)
+        final VkRenderingInfo renderingInfo;
+        {
+            val colorAttachInfos = VkRenderingAttachmentInfo.calloc(1, stack);
+            colorAttachInfos.forEach(VkRenderingAttachmentInfo::sType$Default);
+            //noinspection resource
+            colorAttachInfos.get(0)
+                            .imageView(swapchainImageView)
+                            .imageLayout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+                            .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR) // Clear the image
+                            .storeOp(VK_ATTACHMENT_STORE_OP_STORE) // Keep data for presentation
+                            .clearValue(clr -> clr.color(v -> v.float32(stack.floats(0.01F, 0.01F, 0.01F, 1F))));
+            val depthAttachInfo = VkRenderingAttachmentInfo.calloc(stack)
+                                                           .sType$Default();
+            depthAttachInfo.imageView(depthImageView)
+                           .imageLayout(VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
+                           .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR)
+                           .storeOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
+                           .clearValue(clr -> clr.depthStencil(v -> v.depth(1F)
+                                                                     .stencil(0)));
+
+            renderingInfo = VkRenderingInfo.calloc(stack)
+                                           .sType$Default()
+                                           .renderArea(a -> a.offset(o -> o.set(0, 0))
+                                                             .extent(ext -> ext.set(swapchainWidth, swapchainHeight)))
+                                           .layerCount(1)
+                                           .pColorAttachments(colorAttachInfos)
+                                           .pDepthAttachment(depthAttachInfo);
+        }
+
+        // Begin dynamic rendering
+        vkCmdBeginRendering(res.commandBuffer, renderingInfo);
+        {
+            // Set viewport state
+            val viewports = VkViewport.calloc(1, stack);
+            //noinspection resource
+            viewports.get(0)
+                     .set(0F, 0F, swapchainWidth, swapchainHeight, 0F, 1F);
+            vkCmdSetViewport(res.commandBuffer, 0, viewports);
+
+            // Set scissor state
+            val scissors = VkRect2D.calloc(1, stack);
+            //noinspection resource
+            scissors.get(0)
+                    .offset(o -> o.set(0, 0))
+                    .extent(ext -> ext.set(swapchainWidth, swapchainHeight));
+            vkCmdSetScissor(res.commandBuffer, 0, scissors);
+
+            // Draw our triangle
+            vkCmdBindPipeline(res.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+            vkCmdDraw(res.commandBuffer, 3, 1, 0, 0);
+        }
+        // End dynamic rendering
+        vkCmdEndRendering(res.commandBuffer);
+
+        final VkDependencyInfo presentDepInfo;
+        {
+            val presentLayoutBarriers = VkImageMemoryBarrier2.calloc(1, stack)
+                                                             .sType$Default();
+            //noinspection resource
+            presentLayoutBarriers.get(0)
+                                 .srcStageMask(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT)
+                                 .srcAccessMask(VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT)
+                                 .dstStageMask(VK_PIPELINE_STAGE_2_NONE) // Nothing is waiting, but the cache is flushed and layout is transition
+                                 .dstAccessMask(0)
+                                 .oldLayout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+                                 .newLayout(VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+                                 .image(swapchainImage)
+                                 .subresourceRange(s -> s.aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)
+                                                         .baseMipLevel(0)
+                                                         .levelCount(1)
+                                                         .baseArrayLayer(0)
+                                                         .layerCount(1));
+            presentDepInfo = VkDependencyInfo.calloc(stack)
+                                             .sType$Default()
+                                             .pImageMemoryBarriers(presentLayoutBarriers);
+        }
+        vkCmdPipelineBarrier2(res.commandBuffer, presentDepInfo);
+        vkEndCommandBuffer(res.commandBuffer);
+
+        final VkSubmitInfo2.Buffer submitInfos;
+        {
+            // Ensure swapchain image is actually available to start color output
+            val imageAcquireWaitInfos = VkSemaphoreSubmitInfo.calloc(1, stack);
+            imageAcquireWaitInfos.forEach(VkSemaphoreSubmitInfo::sType$Default);
+            //noinspection resource
+            imageAcquireWaitInfos.get(0)
+                                 .semaphore(res.imageAcquiredSemaphore)
+                                 // wait before drawing to image
+                                 .stageMask(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+            // Signal that the image can be presented
+            val semaphoreSignals = VkSemaphoreSubmitInfo.calloc(2, stack);
+            semaphoreSignals.forEach(VkSemaphoreSubmitInfo::sType$Default);
+            //noinspection resource
+            semaphoreSignals.get(0)
+                            .semaphore(renderCompleteSemaphore)
+                            // wait before drawing to image
+                            .stageMask(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT);
+            //noinspection resource
+            semaphoreSignals.get(1)
+                            .semaphore(timelineSemaphore)
+                            .value(signalValue)
+                            // wait before drawing to image
+                            .stageMask(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+
+            val cmdSubmitInfos = VkCommandBufferSubmitInfo.calloc(1, stack);
+            cmdSubmitInfos.forEach(VkCommandBufferSubmitInfo::sType$Default);
+            //noinspection resource
+            cmdSubmitInfos.get(0)
+                          .commandBuffer(res.commandBuffer);
+
+            submitInfos = VkSubmitInfo2.calloc(1, stack);
+            submitInfos.forEach(VkSubmitInfo2::sType$Default);
+            submitInfos.get(0)
+                       .pWaitSemaphoreInfos(imageAcquireWaitInfos)
+                       .pCommandBufferInfos(cmdSubmitInfos)
+                       .pSignalSemaphoreInfos(semaphoreSignals);
+        }
+        vkQueueSubmit2(gfxQueue, submitInfos, VK_NULL_HANDLE);
+
+        // Present the image
+        val presentInfo = VkPresentInfoKHR.calloc(stack)
+                                          .sType$Default()
+                                          .pWaitSemaphores(stack.longs(renderCompleteSemaphore))
+                                          .swapchainCount(1)
+                                          .pSwapchains(stack.longs(swapchain))
+                                          .pImageIndices(stack.ints(imageIndex))
+                                          .pResults(null);
+        vkQueuePresentKHR(gfxQueue, presentInfo);
     }
 
     private int debugCallback(int messageSeverity, int messageTypes, long pCallbackData, long pUserData) {
@@ -1237,7 +1532,7 @@ public final class Application {
     @NoArgsConstructor
     static final class FrameResources {
         /*(VkCommandPool)*/ long commandPool = NULL;
-        /*(VkCommandBuffer)*/ long commandBuffer = NULL;
+        @Nullable VkCommandBuffer commandBuffer = null;
         /*(VkSemaphore)*/ long imageAcquiredSemaphore = NULL;
     }
 }
