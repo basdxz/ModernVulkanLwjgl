@@ -20,6 +20,7 @@ import org.lwjgl.vulkan.VkDebugUtilsMessengerCreateInfoEXT;
 import org.lwjgl.vulkan.VkDevice;
 import org.lwjgl.vulkan.VkDeviceCreateInfo;
 import org.lwjgl.vulkan.VkDeviceQueueCreateInfo;
+import org.lwjgl.vulkan.VkGraphicsPipelineCreateInfo;
 import org.lwjgl.vulkan.VkImageCreateInfo;
 import org.lwjgl.vulkan.VkImageViewCreateInfo;
 import org.lwjgl.vulkan.VkInstance;
@@ -31,6 +32,18 @@ import org.lwjgl.vulkan.VkPhysicalDeviceVulkan11Features;
 import org.lwjgl.vulkan.VkPhysicalDeviceVulkan12Features;
 import org.lwjgl.vulkan.VkPhysicalDeviceVulkan13Features;
 import org.lwjgl.vulkan.VkPhysicalDeviceVulkan14Features;
+import org.lwjgl.vulkan.VkPipelineColorBlendAttachmentState;
+import org.lwjgl.vulkan.VkPipelineColorBlendStateCreateInfo;
+import org.lwjgl.vulkan.VkPipelineDepthStencilStateCreateInfo;
+import org.lwjgl.vulkan.VkPipelineDynamicStateCreateInfo;
+import org.lwjgl.vulkan.VkPipelineInputAssemblyStateCreateInfo;
+import org.lwjgl.vulkan.VkPipelineLayoutCreateInfo;
+import org.lwjgl.vulkan.VkPipelineMultisampleStateCreateInfo;
+import org.lwjgl.vulkan.VkPipelineRasterizationStateCreateInfo;
+import org.lwjgl.vulkan.VkPipelineRenderingCreateInfo;
+import org.lwjgl.vulkan.VkPipelineShaderStageCreateInfo;
+import org.lwjgl.vulkan.VkPipelineVertexInputStateCreateInfo;
+import org.lwjgl.vulkan.VkPipelineViewportStateCreateInfo;
 import org.lwjgl.vulkan.VkQueue;
 import org.lwjgl.vulkan.VkQueueFamilyProperties2;
 import org.lwjgl.vulkan.VkSemaphoreCreateInfo;
@@ -105,9 +118,18 @@ import static org.lwjgl.vulkan.KHRSwapchain.VK_KHR_SWAPCHAIN_EXTENSION_NAME;
 import static org.lwjgl.vulkan.KHRSwapchain.vkCreateSwapchainKHR;
 import static org.lwjgl.vulkan.KHRSwapchain.vkDestroySwapchainKHR;
 import static org.lwjgl.vulkan.KHRSwapchain.vkGetSwapchainImagesKHR;
+import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_A_BIT;
+import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_B_BIT;
+import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_G_BIT;
+import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_R_BIT;
+import static org.lwjgl.vulkan.VK10.VK_COMPARE_OP_LESS;
+import static org.lwjgl.vulkan.VK10.VK_CULL_MODE_BACK_BIT;
+import static org.lwjgl.vulkan.VK10.VK_DYNAMIC_STATE_SCISSOR;
+import static org.lwjgl.vulkan.VK10.VK_DYNAMIC_STATE_VIEWPORT;
 import static org.lwjgl.vulkan.VK10.VK_FALSE;
 import static org.lwjgl.vulkan.VK10.VK_FORMAT_B8G8R8A8_SRGB;
 import static org.lwjgl.vulkan.VK10.VK_FORMAT_D32_SFLOAT;
+import static org.lwjgl.vulkan.VK10.VK_FRONT_FACE_COUNTER_CLOCKWISE;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_ASPECT_COLOR_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_ASPECT_DEPTH_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_LAYOUT_UNDEFINED;
@@ -117,18 +139,26 @@ import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_VIEW_TYPE_2D;
 import static org.lwjgl.vulkan.VK10.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+import static org.lwjgl.vulkan.VK10.VK_POLYGON_MODE_FILL;
+import static org.lwjgl.vulkan.VK10.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 import static org.lwjgl.vulkan.VK10.VK_QUEUE_GRAPHICS_BIT;
 import static org.lwjgl.vulkan.VK10.VK_SAMPLE_COUNT_1_BIT;
+import static org.lwjgl.vulkan.VK10.VK_SHADER_STAGE_FRAGMENT_BIT;
+import static org.lwjgl.vulkan.VK10.VK_SHADER_STAGE_VERTEX_BIT;
 import static org.lwjgl.vulkan.VK10.VK_SUCCESS;
 import static org.lwjgl.vulkan.VK10.VK_TRUE;
 import static org.lwjgl.vulkan.VK10.vkCreateDevice;
+import static org.lwjgl.vulkan.VK10.vkCreateGraphicsPipelines;
 import static org.lwjgl.vulkan.VK10.vkCreateImageView;
 import static org.lwjgl.vulkan.VK10.vkCreateInstance;
+import static org.lwjgl.vulkan.VK10.vkCreatePipelineLayout;
 import static org.lwjgl.vulkan.VK10.vkCreateSemaphore;
 import static org.lwjgl.vulkan.VK10.vkCreateShaderModule;
 import static org.lwjgl.vulkan.VK10.vkDestroyDevice;
 import static org.lwjgl.vulkan.VK10.vkDestroyImageView;
 import static org.lwjgl.vulkan.VK10.vkDestroyInstance;
+import static org.lwjgl.vulkan.VK10.vkDestroyPipeline;
+import static org.lwjgl.vulkan.VK10.vkDestroyPipelineLayout;
 import static org.lwjgl.vulkan.VK10.vkDestroySemaphore;
 import static org.lwjgl.vulkan.VK10.vkDestroyShaderModule;
 import static org.lwjgl.vulkan.VK10.vkEnumeratePhysicalDevices;
@@ -144,7 +174,7 @@ public final class Application {
     private static final int swapchainFormat = VK_FORMAT_B8G8R8A8_SRGB;
     private static final int depthFormat = VK_FORMAT_D32_SFLOAT;
     //	constexpr static uint32_t MaxFramesInFlight{ 2 };
-    //	constexpr static VkFormat depthFormat{ VK_FORMAT_D32_SFLOAT };
+    private static final String shaderEntryPoint = "main";
 
     private /*(SDL_Window*)*/ long window = NULL;
     private int width = 1280;
@@ -178,10 +208,10 @@ public final class Application {
     private /*(VkImage)*/ long depthImage = NULL;
     private /*(VkImageView)*/ long depthImageView = NULL;
     private /*(VmaAllocation)*/ long depthImageAllocation = NULL;
-    //
-    //	// graphics pipeline related
-    //	VkPipelineLayout pipelineLayout = nullptr;
-    //	VkPipeline pipeline = nullptr;
+
+    // graphics pipeline related
+    private /*(VkPipelineLayout)*/ long pipelineLayout = NULL;
+    private /*(VkPipeline)*/ long pipeline = NULL;
 
     // shader resources
     private /*(VkShaderModule)*/ long vertShader = NULL;
@@ -245,14 +275,18 @@ public final class Application {
         //            vkDestroySemaphore(device, res.imageAcquiredSemaphore, nullptr);
         //            vkDestroyCommandPool(device, res.commandPool, nullptr); // destroys buffers implicitly
         //        }
-        //
-        //        // pipeline cleanup
-        //        if (pipelineLayout) {
-        //            vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-        //        }
-        //        if (pipeline) {
-        //            vkDestroyPipeline(device, pipeline, nullptr);
-        //        }
+
+        // Pipeline cleanup
+        if (pipelineLayout != NULL) {
+            assert device != null;
+            vkDestroyPipelineLayout(device, pipelineLayout, null);
+            pipelineLayout = NULL;
+        }
+        if (pipeline != NULL) {
+            assert device != null;
+            vkDestroyPipeline(device, pipeline, null);
+            pipeline = NULL;
+        }
 
         // Cleanup shaders
         if (vertShader != NULL) {
@@ -346,13 +380,12 @@ public final class Application {
             showError("Error creating shader modules");
             return false;
         }
-        //
-        //        pipeline = createGraphicsPipeline();
-        //        if (!pipeline) {
-        //            showError("Unable to initialize the graphics pipeline");
-        //            return false;
-        //        }
-        //
+
+        if (!createGraphicsPipeline()) {
+            showError("Unable to initialize the graphics pipeline");
+            return false;
+        }
+
         //        if (!createSyncResources()) {
         //            showError("Couldn't create the sync related resources");
         //            return false;
@@ -917,8 +950,7 @@ public final class Application {
             shaderc_compile_options_set_target_spirv(opts, shaderc_spirv_version_1_6);
             shaderc_compile_options_set_optimization_level(opts, shaderc_optimization_level_performance);
 
-            val entryPoint = "main";
-            result = shaderc_compile_into_spv(compiler, src, kind, fileName, entryPoint, opts);
+            result = shaderc_compile_into_spv(compiler, src, kind, fileName, shaderEntryPoint, opts);
 
             if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
                 IO.println("Shader Compilation Error: %s".formatted(shaderc_result_get_error_message(result)));
@@ -956,6 +988,131 @@ public final class Application {
         vertShader = createShaderModule("shader.vert", shaderc_vertex_shader);
         fragShader = createShaderModule("shader.frag", shaderc_fragment_shader);
         return vertShader != NULL && fragShader != NULL;
+    }
+
+    private boolean createGraphicsPipeline() {
+        assert device != null;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        // Need to define a pipeline layout
+        {
+            val pipelineLayoutInfo = VkPipelineLayoutCreateInfo.calloc(stack)
+                                                               .sType$Default()
+                                                               .setLayoutCount(0);
+            val ptr = stack.callocLong(1);
+            if (vkCreatePipelineLayout(device, pipelineLayoutInfo, null, ptr) != VK_SUCCESS) {
+                showError("Unable to create the pipeline layout");
+                return false;
+            }
+            pipelineLayout = ptr.get(0);
+        }
+
+        // Configure the shader stages struct
+        final VkPipelineShaderStageCreateInfo.Buffer shaderStages;
+        {
+            val entryPointPtr = stack.UTF8(shaderEntryPoint);
+            shaderStages = VkPipelineShaderStageCreateInfo.calloc(2, stack);
+            shaderStages.forEach(ci -> ci.sType$Default()
+                                         .pName(entryPointPtr));
+            //noinspection resource
+            shaderStages.get(0)
+                        .stage(VK_SHADER_STAGE_VERTEX_BIT)
+                        .module(vertShader);
+            //noinspection resource
+            shaderStages.get(1)
+                        .stage(VK_SHADER_STAGE_FRAGMENT_BIT)
+                        .module(fragShader);
+        }
+
+        // Vertex pulling, don't define vertex input details
+        val vertInputInfo = VkPipelineVertexInputStateCreateInfo.calloc(stack)
+                                                                .sType$Default();
+
+        // Input assembly, we'll be drawing triangle lists
+        val inputAssemblyInfo = VkPipelineInputAssemblyStateCreateInfo.calloc(stack)
+                                                                      .sType$Default()
+                                                                      .topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+
+        // Depth/Stencil configuration
+        val depthStencilInfo = VkPipelineDepthStencilStateCreateInfo.calloc(stack)
+                                                                    .sType$Default()
+                                                                    .depthTestEnable(true)
+                                                                    .depthWriteEnable(true)
+                                                                    .depthCompareOp(VK_COMPARE_OP_LESS)
+                                                                    .stencilTestEnable(false);
+
+        // Dynamic rendering allows to set this up...dynamically
+        // We still need this struct though
+        val viewportInfo = VkPipelineViewportStateCreateInfo.calloc(stack)
+                                                            .sType$Default()
+                                                            .viewportCount(1)
+                                                            .pViewports(null)
+                                                            .scissorCount(1)
+                                                            .pScissors(null);
+
+        // Rasterizer settings
+        val rasterInfo = VkPipelineRasterizationStateCreateInfo.calloc(stack)
+                                                               .sType$Default()
+                                                               .polygonMode(VK_POLYGON_MODE_FILL)
+                                                               .cullMode(VK_CULL_MODE_BACK_BIT)
+                                                               .frontFace(VK_FRONT_FACE_COUNTER_CLOCKWISE)
+                                                               .lineWidth(1F);
+
+        // No multisampling
+        val multiSampleInfo = VkPipelineMultisampleStateCreateInfo.calloc(stack)
+                                                                  .sType$Default()
+                                                                  .rasterizationSamples(VK_SAMPLE_COUNT_1_BIT);
+        //Alpha-blending (disabled for now), still need attachment info and write mask
+        val attachStates = VkPipelineColorBlendAttachmentState.calloc(1, stack);
+        //noinspection resource
+        attachStates.get(0)
+                    .blendEnable(false)
+                    .colorWriteMask(VK_COLOR_COMPONENT_R_BIT |
+                                    VK_COLOR_COMPONENT_G_BIT |
+                                    VK_COLOR_COMPONENT_B_BIT |
+                                    VK_COLOR_COMPONENT_A_BIT);
+        val blendInfo = VkPipelineColorBlendStateCreateInfo.calloc(stack)
+                                                           .sType$Default()
+                                                           .pAttachments(attachStates);
+
+        // Enable dynamic state
+        val dynamicStateInfo = VkPipelineDynamicStateCreateInfo.calloc(stack)
+                                                               .sType$Default()
+                                                               .pDynamicStates(stack.ints(VK_DYNAMIC_STATE_VIEWPORT,
+                                                                                          VK_DYNAMIC_STATE_SCISSOR));
+
+        // Structure required for dynamic rendering
+        val renderInfo = VkPipelineRenderingCreateInfo.calloc(stack)
+                                                      .sType$Default()
+                                                      .pColorAttachmentFormats(stack.ints(swapchainFormat))
+                                                      .depthAttachmentFormat(depthFormat);
+
+        // Create the graphics pipeline
+        val pipelineInfo = VkGraphicsPipelineCreateInfo.calloc(1, stack);
+        pipelineInfo.forEach(VkGraphicsPipelineCreateInfo::sType$Default);
+        pipelineInfo.get(0)
+                    .pNext(renderInfo)
+                    .pStages(shaderStages)
+                    .pVertexInputState(vertInputInfo)
+                    .pInputAssemblyState(inputAssemblyInfo)
+                    .pViewportState(viewportInfo)
+                    .pRasterizationState(rasterInfo)
+                    .pMultisampleState(multiSampleInfo)
+                    .pDepthStencilState(depthStencilInfo)
+                    .pColorBlendState(blendInfo)
+                    .pDynamicState(dynamicStateInfo)
+                    .layout(pipelineLayout)
+                    .renderPass(NULL);
+
+        val ptr = stack.callocLong(1);
+        if (vkCreateGraphicsPipelines(device, NULL, pipelineInfo, null, ptr) != VK_SUCCESS) {
+            showError("Error creating the pipeline");
+            return false;
+        }
+
+        pipeline = ptr.get(0);
+        return true;
     }
 
     private void render() {
