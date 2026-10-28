@@ -17,6 +17,7 @@ import org.lwjgl.vulkan.VkInstance;
 import org.lwjgl.vulkan.VkInstanceCreateInfo;
 import org.lwjgl.vulkan.VkPhysicalDevice;
 import org.lwjgl.vulkan.VkPhysicalDeviceProperties;
+import org.lwjgl.vulkan.VkQueueFamilyProperties2;
 import org.lwjgl.vulkan.VkSurfaceFormatKHR;
 
 import java.util.ArrayDeque;
@@ -48,14 +49,18 @@ import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORM
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
 import static org.lwjgl.vulkan.KHRSurface.vkDestroySurfaceKHR;
 import static org.lwjgl.vulkan.KHRSurface.vkGetPhysicalDeviceSurfaceFormatsKHR;
+import static org.lwjgl.vulkan.KHRSurface.vkGetPhysicalDeviceSurfaceSupportKHR;
 import static org.lwjgl.vulkan.VK10.VK_FALSE;
 import static org.lwjgl.vulkan.VK10.VK_FORMAT_B8G8R8A8_SRGB;
 import static org.lwjgl.vulkan.VK10.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+import static org.lwjgl.vulkan.VK10.VK_QUEUE_GRAPHICS_BIT;
 import static org.lwjgl.vulkan.VK10.VK_SUCCESS;
+import static org.lwjgl.vulkan.VK10.VK_TRUE;
 import static org.lwjgl.vulkan.VK10.vkCreateInstance;
 import static org.lwjgl.vulkan.VK10.vkDestroyInstance;
 import static org.lwjgl.vulkan.VK10.vkEnumeratePhysicalDevices;
 import static org.lwjgl.vulkan.VK10.vkGetPhysicalDeviceProperties;
+import static org.lwjgl.vulkan.VK11.vkGetPhysicalDeviceQueueFamilyProperties2;
 import static org.lwjgl.vulkan.VK14.VK_API_VERSION_1_4;
 
 @NoArgsConstructor
@@ -77,11 +82,11 @@ public final class Application {
     private @Nullable VkInstance vulkanInstance = null;
     private /*(VkSurfaceKHR)*/ long surface = NULL;
     private @Nullable VkPhysicalDevice physicalDevice = null;
+    private int gfxQueueFamIdx = -1;
     //	VkDevice device = nullptr;
     //	VmaAllocator vmaAllocator = nullptr;
     //
     //	// queue related
-    //	uint32_t gfxQueueFamIdx = UINT32_MAX;
     //	VkQueue gfxQueue = nullptr;
     //
     //	// swapchain related
@@ -189,6 +194,7 @@ public final class Application {
         //        }
 
         // cleanup Vulkan
+        gfxQueueFamIdx = -1;
         physicalDevice = null;
         if (surface != NULL) {
             assert vulkanInstance != null;
@@ -228,10 +234,11 @@ public final class Application {
             showError("Unable to find an appropriate physical device");
             return false;
         }
-        //        if (!findGraphicsQueue()) {
-        //            showError("Unable to find a compatible graphics queue");
-        //            return false;
-        //        }
+
+        if (!findGraphicsQueue()) {
+            showError("Unable to find a compatible graphics queue");
+            return false;
+        }
         //
         //        if (!createDevice(physicalDevice)) {
         //            showError("Couldn't create the logical GPU device");
@@ -436,6 +443,51 @@ public final class Application {
 
         physicalDevice = selectedDev;
         return true;
+    }
+
+    private boolean findGraphicsQueue() {
+        // Eventually we'll have more complex queue lookup for presentation, etc.
+
+        assert surface != NULL;
+        assert physicalDevice != null;
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        final int numQueues;
+        final VkQueueFamilyProperties2.Buffer propsList;
+        // Grab all the queue families
+        {
+            val count = stack.callocInt(1);
+            vkGetPhysicalDeviceQueueFamilyProperties2(physicalDevice, count, null);
+
+            propsList = VkQueueFamilyProperties2.calloc(count.get(0), stack);
+            propsList.forEach(VkQueueFamilyProperties2::sType$Default);
+
+            vkGetPhysicalDeviceQueueFamilyProperties2(physicalDevice, count, propsList);
+            numQueues = count.get(0);
+        }
+
+        if (numQueues < 1) {
+            // No queues found
+            return false;
+        }
+
+        val hasPresentSupport = stack.callocInt(1);
+        for (var i = 0; i < numQueues; i++) {
+            // Ensure this queue has presentation support
+            vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, surface, hasPresentSupport);
+            if (hasPresentSupport.get(0) != VK_TRUE) {
+                continue;
+            }
+
+            // Ensure this is a GRAPHICS queue
+            val props = propsList.get(i);
+            val familyProps = props.queueFamilyProperties();
+            if ((familyProps.queueFlags() & VK_QUEUE_GRAPHICS_BIT) != 0) {
+                gfxQueueFamIdx = i;
+                return true;
+            }
+        }
+        return false;
     }
 
     private void render() {
