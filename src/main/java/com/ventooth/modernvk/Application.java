@@ -8,6 +8,7 @@ import org.lwjgl.PointerBuffer;
 import org.lwjgl.sdl.SDL_Event;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
+import org.lwjgl.system.NativeType;
 import org.lwjgl.util.vma.VmaAllocationCreateInfo;
 import org.lwjgl.util.vma.VmaAllocatorCreateInfo;
 import org.lwjgl.util.vma.VmaVulkanFunctions;
@@ -33,6 +34,7 @@ import org.lwjgl.vulkan.VkPhysicalDeviceVulkan14Features;
 import org.lwjgl.vulkan.VkQueue;
 import org.lwjgl.vulkan.VkQueueFamilyProperties2;
 import org.lwjgl.vulkan.VkSemaphoreCreateInfo;
+import org.lwjgl.vulkan.VkShaderModuleCreateInfo;
 import org.lwjgl.vulkan.VkSurfaceCapabilitiesKHR;
 import org.lwjgl.vulkan.VkSurfaceFormatKHR;
 import org.lwjgl.vulkan.VkSwapchainCreateInfoKHR;
@@ -41,6 +43,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Objects;
 
+import static com.ventooth.modernvk.Utils.readTextFile;
 import static org.lwjgl.sdl.SDLEvents.SDL_EVENT_QUIT;
 import static org.lwjgl.sdl.SDLEvents.SDL_EVENT_WINDOW_RESIZED;
 import static org.lwjgl.sdl.SDLEvents.SDL_PollEvent;
@@ -57,6 +60,25 @@ import static org.lwjgl.sdl.SDLVulkan.SDL_Vulkan_CreateSurface;
 import static org.lwjgl.sdl.SDLVulkan.SDL_Vulkan_GetInstanceExtensions;
 import static org.lwjgl.sdl.SDLVulkan.SDL_Vulkan_GetVkGetInstanceProcAddr;
 import static org.lwjgl.system.MemoryUtil.NULL;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_compilation_status_success;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_compile_into_spv;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_compile_options_initialize;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_compile_options_release;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_compile_options_set_optimization_level;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_compile_options_set_target_env;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_compile_options_set_target_spirv;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_compiler_initialize;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_compiler_release;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_env_version_vulkan_1_4;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_fragment_shader;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_optimization_level_performance;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_result_get_bytes;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_result_get_compilation_status;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_result_get_error_message;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_result_release;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_spirv_version_1_6;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_target_env_vulkan;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_vertex_shader;
 import static org.lwjgl.util.vma.Vma.VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 import static org.lwjgl.util.vma.Vma.VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 import static org.lwjgl.util.vma.Vma.VMA_MEMORY_USAGE_AUTO;
@@ -103,10 +125,12 @@ import static org.lwjgl.vulkan.VK10.vkCreateDevice;
 import static org.lwjgl.vulkan.VK10.vkCreateImageView;
 import static org.lwjgl.vulkan.VK10.vkCreateInstance;
 import static org.lwjgl.vulkan.VK10.vkCreateSemaphore;
+import static org.lwjgl.vulkan.VK10.vkCreateShaderModule;
 import static org.lwjgl.vulkan.VK10.vkDestroyDevice;
 import static org.lwjgl.vulkan.VK10.vkDestroyImageView;
 import static org.lwjgl.vulkan.VK10.vkDestroyInstance;
 import static org.lwjgl.vulkan.VK10.vkDestroySemaphore;
+import static org.lwjgl.vulkan.VK10.vkDestroyShaderModule;
 import static org.lwjgl.vulkan.VK10.vkEnumeratePhysicalDevices;
 import static org.lwjgl.vulkan.VK10.vkGetDeviceQueue;
 import static org.lwjgl.vulkan.VK10.vkGetPhysicalDeviceProperties;
@@ -158,10 +182,10 @@ public final class Application {
     //	// graphics pipeline related
     //	VkPipelineLayout pipelineLayout = nullptr;
     //	VkPipeline pipeline = nullptr;
-    //
-    //	// shader resources
-    //	VkShaderModule vertShader = nullptr;
-    //	VkShaderModule fragShader = nullptr;
+
+    // shader resources
+    private /*(VkShaderModule)*/ long vertShader = NULL;
+    private /*(VkShaderModule)*/ long fragShader = NULL;
     //
     //	// frame and synchronization resources
     //	VkSemaphore timelineSemaphore = nullptr;
@@ -229,14 +253,18 @@ public final class Application {
         //        if (pipeline) {
         //            vkDestroyPipeline(device, pipeline, nullptr);
         //        }
-        //
-        //        // cleanup shaders
-        //        if (vertShader) {
-        //            vkDestroyShaderModule(device, vertShader, nullptr);
-        //        }
-        //        if (fragShader) {
-        //            vkDestroyShaderModule(device, fragShader, nullptr);
-        //        }
+
+        // Cleanup shaders
+        if (vertShader != NULL) {
+            assert device != null;
+            vkDestroyShaderModule(device, vertShader, null);
+            vertShader = NULL;
+        }
+        if (fragShader != NULL) {
+            assert device != null;
+            vkDestroyShaderModule(device, fragShader, null);
+            fragShader = NULL;
+        }
 
         // Cleanup swapchain
         destroySwapchain();
@@ -314,11 +342,10 @@ public final class Application {
             return false;
         }
 
-        //
-        //        if (!createShaders()) {
-        //            showError("Error creating shader modules");
-        //            return false;
-        //        }
+        if (!createShaders()) {
+            showError("Error creating shader modules");
+            return false;
+        }
         //
         //        pipeline = createGraphicsPipeline();
         //        if (!pipeline) {
@@ -862,6 +889,73 @@ public final class Application {
             depthImage = NULL;
             depthImageAllocation = NULL;
         }
+    }
+
+    private @NativeType("VkShaderModule") long createShaderModule(String fileName,
+                                                                  @NativeType("shaderc_shader_kind") int kind) {
+        assert device != null;
+
+        val shaderPath = "shaders/" + fileName;
+        val src = readTextFile(shaderPath);
+        if (src.isEmpty()) {
+            showError("Specified shader file doesn't exist: " + shaderPath);
+            return NULL;
+        }
+
+        // Compile the shader to SPIR-V
+        IO.println("Compiling shader: %s".formatted(shaderPath));
+
+        long compiler = NULL;
+        long opts = NULL;
+        long result = NULL;
+
+        try (val stack = MemoryStack.stackPush()) {
+            compiler = shaderc_compiler_initialize();
+            opts = shaderc_compile_options_initialize();
+
+            shaderc_compile_options_set_target_env(opts, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_4);
+            shaderc_compile_options_set_target_spirv(opts, shaderc_spirv_version_1_6);
+            shaderc_compile_options_set_optimization_level(opts, shaderc_optimization_level_performance);
+
+            val entryPoint = "main";
+            result = shaderc_compile_into_spv(compiler, src, kind, fileName, entryPoint, opts);
+
+            if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
+                IO.println("Shader Compilation Error: %s".formatted(shaderc_result_get_error_message(result)));
+                return NULL;
+            }
+
+            // Memory here is managed by shaderc
+            val spv = shaderc_result_get_bytes(result);
+            assert spv != null;
+
+            val moduleInfo = VkShaderModuleCreateInfo.calloc(stack)
+                                                     .sType$Default()
+                                                     .pCode(spv);
+            val ptr = stack.callocLong(1);
+            if (vkCreateShaderModule(device, moduleInfo, null, ptr) != VK_SUCCESS) {
+                showError("Error creating shader module");
+                return NULL;
+            }
+            return ptr.get(0);
+        } finally {
+            if (result != NULL) {
+                shaderc_result_release(result);
+            }
+            if (opts != NULL) {
+                shaderc_compile_options_release(opts);
+            }
+            if (compiler != NULL) {
+                shaderc_compiler_release(compiler);
+            }
+        }
+    }
+
+    private boolean createShaders() {
+        // Create the shader modules that we'll need for the graphics pipeline
+        vertShader = createShaderModule("shader.vert", shaderc_vertex_shader);
+        fragShader = createShaderModule("shader.frag", shaderc_fragment_shader);
+        return vertShader != NULL && fragShader != NULL;
     }
 
     private void render() {
