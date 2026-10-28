@@ -14,6 +14,8 @@ import org.lwjgl.util.vma.VmaAllocatorCreateInfo;
 import org.lwjgl.util.vma.VmaVulkanFunctions;
 import org.lwjgl.vulkan.VK;
 import org.lwjgl.vulkan.VkApplicationInfo;
+import org.lwjgl.vulkan.VkCommandBufferAllocateInfo;
+import org.lwjgl.vulkan.VkCommandPoolCreateInfo;
 import org.lwjgl.vulkan.VkDebugUtilsMessengerCallbackDataEXT;
 import org.lwjgl.vulkan.VkDebugUtilsMessengerCallbackEXT;
 import org.lwjgl.vulkan.VkDebugUtilsMessengerCreateInfoEXT;
@@ -124,6 +126,7 @@ import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_A_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_B_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_G_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_R_BIT;
+import static org.lwjgl.vulkan.VK10.VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 import static org.lwjgl.vulkan.VK10.VK_COMPARE_OP_LESS;
 import static org.lwjgl.vulkan.VK10.VK_CULL_MODE_BACK_BIT;
 import static org.lwjgl.vulkan.VK10.VK_DYNAMIC_STATE_SCISSOR;
@@ -149,6 +152,8 @@ import static org.lwjgl.vulkan.VK10.VK_SHADER_STAGE_FRAGMENT_BIT;
 import static org.lwjgl.vulkan.VK10.VK_SHADER_STAGE_VERTEX_BIT;
 import static org.lwjgl.vulkan.VK10.VK_SUCCESS;
 import static org.lwjgl.vulkan.VK10.VK_TRUE;
+import static org.lwjgl.vulkan.VK10.vkAllocateCommandBuffers;
+import static org.lwjgl.vulkan.VK10.vkCreateCommandPool;
 import static org.lwjgl.vulkan.VK10.vkCreateDevice;
 import static org.lwjgl.vulkan.VK10.vkCreateGraphicsPipelines;
 import static org.lwjgl.vulkan.VK10.vkCreateImageView;
@@ -410,10 +415,10 @@ public final class Application {
             return false;
         }
 
-        //        if (!createCommandBuffers()) {
-        //            showError("Couldn't create command buffer objects");
-        //            return false;
-        //        }
+        if (!createCommandBuffers()) {
+            showError("Couldn't create command buffer objects");
+            return false;
+        }
 
         return true;
     }
@@ -1174,6 +1179,47 @@ public final class Application {
             }
             res.imageAcquiredSemaphore = ptr.get(0);
         }
+        return true;
+    }
+
+    private boolean createCommandBuffers() {
+        assert device != null;
+        assert frameResources != null;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        // We'll give each frame its own pool, faster cmd buffer resets this way
+        {
+            val poolInfo = VkCommandPoolCreateInfo.calloc(stack)
+                                                  .sType$Default()
+                                                  .queueFamilyIndex(gfxQueueFamIdx);
+            val ptr = stack.callocLong(1);
+            for (val res : frameResources) {
+                if (vkCreateCommandPool(device, poolInfo, null, ptr) != VK_SUCCESS) {
+                    showError("Unable to create command buffer pool");
+                    return false;
+                }
+                res.commandPool = ptr.get(0);
+            }
+        }
+
+        // Create a command buffer for each frame
+        {
+            val cmdAllocInfo = VkCommandBufferAllocateInfo.calloc(stack)
+                                                          .sType$Default()
+                                                          .level(VK_COMMAND_BUFFER_LEVEL_PRIMARY)
+                                                          .commandBufferCount(1);
+            val ptr = stack.callocPointer(1);
+            for (val res : frameResources) {
+                cmdAllocInfo.commandPool(res.commandPool);
+                if (vkAllocateCommandBuffers(device, cmdAllocInfo, ptr) != VK_SUCCESS) {
+                    showError("Unable to allocate command buffer");
+                    return false;
+                }
+                res.commandBuffer = ptr.get(0);
+            }
+        }
+
         return true;
     }
 
