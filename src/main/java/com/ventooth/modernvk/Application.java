@@ -8,6 +8,8 @@ import org.lwjgl.PointerBuffer;
 import org.lwjgl.sdl.SDL_Event;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
+import org.lwjgl.util.vma.VmaAllocatorCreateInfo;
+import org.lwjgl.util.vma.VmaVulkanFunctions;
 import org.lwjgl.vulkan.VK;
 import org.lwjgl.vulkan.VkApplicationInfo;
 import org.lwjgl.vulkan.VkDebugUtilsMessengerCallbackDataEXT;
@@ -49,6 +51,9 @@ import static org.lwjgl.sdl.SDLVulkan.SDL_Vulkan_CreateSurface;
 import static org.lwjgl.sdl.SDLVulkan.SDL_Vulkan_GetInstanceExtensions;
 import static org.lwjgl.sdl.SDLVulkan.SDL_Vulkan_GetVkGetInstanceProcAddr;
 import static org.lwjgl.system.MemoryUtil.NULL;
+import static org.lwjgl.util.vma.Vma.VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+import static org.lwjgl.util.vma.Vma.vmaCreateAllocator;
+import static org.lwjgl.util.vma.Vma.vmaDestroyAllocator;
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT;
@@ -97,7 +102,7 @@ public final class Application {
     private /*(VkSurfaceKHR)*/ long surface = NULL;
     private @Nullable VkPhysicalDevice physicalDevice = null;
     private @Nullable VkDevice device = null;
-    //	VmaAllocator vmaAllocator = nullptr;
+    private /*(VmaAllocator)*/ long vmaAllocator = NULL;
     //
     // queue related
     private int gfxQueueFamIdx = -1;
@@ -201,13 +206,14 @@ public final class Application {
         //
         //        // cleanup swapchain
         //        destroySwapchain();
-        //
-        //        // VMA
-        //        if (vmaAllocator) {
-        //            vmaDestroyAllocator(vmaAllocator);
-        //        }
 
-        // cleanup Vulkan
+        // VMA
+        if (vmaAllocator != NULL) {
+            vmaDestroyAllocator(vmaAllocator);
+            vmaAllocator = NULL;
+        }
+
+        // Cleanup Vulkan
         gfxQueue = null;
         if (device != null) {
             vkDestroyDevice(device, null);
@@ -230,7 +236,7 @@ public final class Application {
         }
         VK.destroy();
 
-        // cleanup SDL
+        // Cleanup SDL
         if (window != NULL) {
             SDL_DestroyWindow(window);
             window = NULL;
@@ -263,11 +269,11 @@ public final class Application {
             showError("Couldn't create the logical GPU device");
             return false;
         }
-        //
-        //        if (!initializeVMA()) {
-        //            showError("Unable to create Vulkan Memory Allocator");
-        //            return false;
-        //        }
+
+        if (!initializeVMA()) {
+            showError("Unable to create Vulkan Memory Allocator");
+            return false;
+        }
         //
         //        if (!createSwapchain(width, height)) {
         //            showError("Unable to create swapchain");
@@ -612,6 +618,33 @@ public final class Application {
 
             gfxQueue = new VkQueue(ptr.get(0), device);
         }
+        return true;
+    }
+
+    private boolean initializeVMA() {
+        assert vulkanInstance != null;
+        assert device != null;
+        assert physicalDevice != null;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        // See: https://github.com/LWJGL/lwjgl3/blob/8adda2367a10f0283ba7ac27a2222fcf7fc67212/modules/samples/src/test/java/org/lwjgl/demo/vulkan/khronos/HelloTriangle.java#L406-L416
+        val vmaFuncInfo = VmaVulkanFunctions.calloc(stack)
+                                            .set(vulkanInstance, device);
+
+        val vmaAllocInfo = VmaAllocatorCreateInfo.calloc(stack)
+                                                 .flags(VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT)
+                                                 .physicalDevice(physicalDevice)
+                                                 .device(device)
+                                                 .pVulkanFunctions(vmaFuncInfo)
+                                                 .instance(vulkanInstance)
+                                                 .vulkanApiVersion(VulkanVersion);
+
+        val ptr = stack.callocPointer(1);
+        if (vmaCreateAllocator(vmaAllocInfo, ptr) != VK_SUCCESS) {
+            return false;
+        }
+        vmaAllocator = ptr.get(0);
         return true;
     }
 

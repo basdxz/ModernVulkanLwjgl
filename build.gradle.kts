@@ -54,10 +54,12 @@ dependencies {
     implementation("org.lwjgl:lwjgl-sdl")
     implementation("org.lwjgl:lwjgl-shaderc")
     implementation("org.lwjgl:lwjgl-vulkan")
+    implementation("org.lwjgl:lwjgl-vma")
     runtimeOnly("org.lwjgl:lwjgl::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-sdl::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-shaderc::$lwjglNatives")
     if (lwjglNatives == "natives-macos" || lwjglNatives == "natives-macos-arm64") runtimeOnly("org.lwjgl:lwjgl-vulkan::$lwjglNatives")
+    runtimeOnly("org.lwjgl:lwjgl-vma::$lwjglNatives")
 }
 
 application {
