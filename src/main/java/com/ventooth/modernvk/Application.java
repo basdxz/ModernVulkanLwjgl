@@ -47,6 +47,7 @@ import org.lwjgl.vulkan.VkPipelineViewportStateCreateInfo;
 import org.lwjgl.vulkan.VkQueue;
 import org.lwjgl.vulkan.VkQueueFamilyProperties2;
 import org.lwjgl.vulkan.VkSemaphoreCreateInfo;
+import org.lwjgl.vulkan.VkSemaphoreTypeCreateInfo;
 import org.lwjgl.vulkan.VkShaderModuleCreateInfo;
 import org.lwjgl.vulkan.VkSurfaceCapabilitiesKHR;
 import org.lwjgl.vulkan.VkSurfaceFormatKHR;
@@ -55,6 +56,7 @@ import org.lwjgl.vulkan.VkSwapchainCreateInfoKHR;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Objects;
+import java.util.stream.IntStream;
 
 import static com.ventooth.modernvk.Utils.readTextFile;
 import static org.lwjgl.sdl.SDLEvents.SDL_EVENT_QUIT;
@@ -154,6 +156,7 @@ import static org.lwjgl.vulkan.VK10.vkCreateInstance;
 import static org.lwjgl.vulkan.VK10.vkCreatePipelineLayout;
 import static org.lwjgl.vulkan.VK10.vkCreateSemaphore;
 import static org.lwjgl.vulkan.VK10.vkCreateShaderModule;
+import static org.lwjgl.vulkan.VK10.vkDestroyCommandPool;
 import static org.lwjgl.vulkan.VK10.vkDestroyDevice;
 import static org.lwjgl.vulkan.VK10.vkDestroyImageView;
 import static org.lwjgl.vulkan.VK10.vkDestroyInstance;
@@ -161,11 +164,13 @@ import static org.lwjgl.vulkan.VK10.vkDestroyPipeline;
 import static org.lwjgl.vulkan.VK10.vkDestroyPipelineLayout;
 import static org.lwjgl.vulkan.VK10.vkDestroySemaphore;
 import static org.lwjgl.vulkan.VK10.vkDestroyShaderModule;
+import static org.lwjgl.vulkan.VK10.vkDeviceWaitIdle;
 import static org.lwjgl.vulkan.VK10.vkEnumeratePhysicalDevices;
 import static org.lwjgl.vulkan.VK10.vkGetDeviceQueue;
 import static org.lwjgl.vulkan.VK10.vkGetPhysicalDeviceProperties;
 import static org.lwjgl.vulkan.VK11.vkGetPhysicalDeviceFeatures2;
 import static org.lwjgl.vulkan.VK11.vkGetPhysicalDeviceQueueFamilyProperties2;
+import static org.lwjgl.vulkan.VK12.VK_SEMAPHORE_TYPE_TIMELINE;
 import static org.lwjgl.vulkan.VK14.VK_API_VERSION_1_4;
 
 @NoArgsConstructor
@@ -173,7 +178,7 @@ public final class Application {
     private static final int VulkanVersion = VK_API_VERSION_1_4;
     private static final int swapchainFormat = VK_FORMAT_B8G8R8A8_SRGB;
     private static final int depthFormat = VK_FORMAT_D32_SFLOAT;
-    //	constexpr static uint32_t MaxFramesInFlight{ 2 };
+    private static final int MaxFramesInFlight = 2;
     private static final String shaderEntryPoint = "main";
 
     private /*(SDL_Window*)*/ long window = NULL;
@@ -216,10 +221,10 @@ public final class Application {
     // shader resources
     private /*(VkShaderModule)*/ long vertShader = NULL;
     private /*(VkShaderModule)*/ long fragShader = NULL;
-    //
-    //	// frame and synchronization resources
-    //	VkSemaphore timelineSemaphore = nullptr;
-    //	std::array<FrameResources, MaxFramesInFlight> frameResources;
+
+    // frame and synchronization resources
+    private /*(VkSemaphore)*/ long timelineSemaphore = NULL;
+    private FrameResources @Nullable [] frameResources = null;
 
     private void showError(String errorMessage) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", errorMessage, window);
@@ -263,18 +268,32 @@ public final class Application {
     }
 
     public void shutdown() {
-        //        // wait in case resources are in use
-        //        vkDeviceWaitIdle(device);
-        //
-        //        // frame / sync object cleanup
-        //        if (timelineSemaphore) {
-        //            vkDestroySemaphore(device, timelineSemaphore, nullptr);
-        //        }
-        //        for (auto & res :frameResources)
-        //        {
-        //            vkDestroySemaphore(device, res.imageAcquiredSemaphore, nullptr);
-        //            vkDestroyCommandPool(device, res.commandPool, nullptr); // destroys buffers implicitly
-        //        }
+        // wait in case resources are in use
+        if (device != null) {
+            vkDeviceWaitIdle(device);
+        }
+
+        // frame / sync object cleanup
+        if (timelineSemaphore != NULL) {
+            assert device != null;
+            vkDestroySemaphore(device, timelineSemaphore, null);
+        }
+
+        if (frameResources != null) {
+            assert device != null;
+            for (val res : frameResources) {
+                if (res.imageAcquiredSemaphore != NULL) {
+                    vkDestroySemaphore(device, res.imageAcquiredSemaphore, null);
+                    res.imageAcquiredSemaphore = NULL;
+                }
+                if (res.commandPool != NULL) {
+                    vkDestroyCommandPool(device, res.commandPool, null); // destroys buffers implicitly
+                    res.commandPool = NULL;
+                    res.commandBuffer = NULL;
+                }
+            }
+            frameResources = null;
+        }
 
         // Pipeline cleanup
         if (pipelineLayout != NULL) {
@@ -386,11 +405,11 @@ public final class Application {
             return false;
         }
 
-        //        if (!createSyncResources()) {
-        //            showError("Couldn't create the sync related resources");
-        //            return false;
-        //        }
-        //
+        if (!createSyncResources()) {
+            showError("Couldn't create the sync related resources");
+            return false;
+        }
+
         //        if (!createCommandBuffers()) {
         //            showError("Couldn't create command buffer objects");
         //            return false;
@@ -1115,6 +1134,49 @@ public final class Application {
         return true;
     }
 
+    private boolean createSyncResources() {
+        assert device != null;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        {
+            val semaphoreTypeInfo = VkSemaphoreTypeCreateInfo.calloc(stack)
+                                                             .sType$Default()
+                                                             .semaphoreType(VK_SEMAPHORE_TYPE_TIMELINE)
+                                                             .initialValue(MaxFramesInFlight);
+            val semaphoreInfo = VkSemaphoreCreateInfo.calloc(stack)
+                                                     .sType$Default()
+                                                     .pNext(semaphoreTypeInfo);
+
+            val ptr = stack.callocLong(1);
+            if (vkCreateSemaphore(device, semaphoreInfo, null, ptr) != VK_SUCCESS) {
+                showError("Unable to create the timeline semaphore");
+                return false;
+            }
+
+            timelineSemaphore = ptr.get(0);
+        }
+
+
+        // Initialize frame resources
+        frameResources = IntStream.range(0, MaxFramesInFlight)
+                                  .mapToObj(_ -> new FrameResources())
+                                  .toArray(FrameResources[]::new);
+
+        // per-frame image-acquire semaphores
+        val semaphoreInfo = VkSemaphoreCreateInfo.calloc(stack)
+                                                 .sType$Default();
+        val ptr = stack.callocLong(1);
+        for (val res : frameResources) {
+            if (vkCreateSemaphore(device, semaphoreInfo, null, ptr) != VK_SUCCESS) {
+                showError("Error creating the per-frame image-acquire semaphore");
+                return false;
+            }
+            res.imageAcquiredSemaphore = ptr.get(0);
+        }
+        return true;
+    }
+
     private void render() {
 
     }
@@ -1124,5 +1186,12 @@ public final class Application {
         val callbackData = VkDebugUtilsMessengerCallbackDataEXT.create(pCallbackData);
         System.err.println(callbackData.pMessageString());
         return VK_FALSE;
+    }
+
+    @NoArgsConstructor
+    static final class FrameResources {
+        /*(VkCommandPool)*/ long commandPool = NULL;
+        /*(VkCommandBuffer)*/ long commandBuffer = NULL;
+        /*(VkSemaphore)*/ long imageAcquiredSemaphore = NULL;
     }
 }
