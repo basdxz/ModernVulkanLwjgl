@@ -15,8 +15,12 @@ import org.lwjgl.vulkan.VkDebugUtilsMessengerCallbackEXT;
 import org.lwjgl.vulkan.VkDebugUtilsMessengerCreateInfoEXT;
 import org.lwjgl.vulkan.VkInstance;
 import org.lwjgl.vulkan.VkInstanceCreateInfo;
+import org.lwjgl.vulkan.VkPhysicalDevice;
+import org.lwjgl.vulkan.VkPhysicalDeviceProperties;
+import org.lwjgl.vulkan.VkSurfaceFormatKHR;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Objects;
 
 import static org.lwjgl.sdl.SDLEvents.SDL_EVENT_QUIT;
@@ -43,17 +47,22 @@ import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
 import static org.lwjgl.vulkan.KHRSurface.vkDestroySurfaceKHR;
+import static org.lwjgl.vulkan.KHRSurface.vkGetPhysicalDeviceSurfaceFormatsKHR;
 import static org.lwjgl.vulkan.VK10.VK_FALSE;
+import static org.lwjgl.vulkan.VK10.VK_FORMAT_B8G8R8A8_SRGB;
+import static org.lwjgl.vulkan.VK10.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 import static org.lwjgl.vulkan.VK10.VK_SUCCESS;
 import static org.lwjgl.vulkan.VK10.vkCreateInstance;
 import static org.lwjgl.vulkan.VK10.vkDestroyInstance;
+import static org.lwjgl.vulkan.VK10.vkEnumeratePhysicalDevices;
+import static org.lwjgl.vulkan.VK10.vkGetPhysicalDeviceProperties;
 import static org.lwjgl.vulkan.VK14.VK_API_VERSION_1_4;
 
 @NoArgsConstructor
 public final class Application {
     private static final int VulkanVersion = VK_API_VERSION_1_4;
+    private static final int swapchainFormat = VK_FORMAT_B8G8R8A8_SRGB;
     //	constexpr static uint32_t MaxFramesInFlight{ 2 };
-    //	constexpr static VkFormat swapchainFormat{ VK_FORMAT_B8G8R8A8_SRGB };
     //	constexpr static VkFormat depthFormat{ VK_FORMAT_D32_SFLOAT };
 
     private /*(SDL_Window *)*/ long window = NULL;
@@ -67,7 +76,7 @@ public final class Application {
     private @Nullable VkDebugUtilsMessengerCallbackEXT debugCallback;
     private @Nullable VkInstance vulkanInstance = null;
     private /*(VkSurfaceKHR)*/ long surface = NULL;
-    //	VkPhysicalDevice physicalDevice = nullptr;
+    private @Nullable VkPhysicalDevice physicalDevice = null;
     //	VkDevice device = nullptr;
     //	VmaAllocator vmaAllocator = nullptr;
     //
@@ -180,6 +189,7 @@ public final class Application {
         //        }
 
         // cleanup Vulkan
+        physicalDevice = null;
         if (surface != NULL) {
             assert vulkanInstance != null;
             vkDestroySurfaceKHR(vulkanInstance, surface, null);
@@ -213,13 +223,11 @@ public final class Application {
             showError("Couldn't create window surface");
             return false;
         }
-        //
-        //        physicalDevice = findPhysicalDevice();
-        //        if (!physicalDevice) {
-        //            showError("Unable to find an appropriate physical device");
-        //            return false;
-        //        }
-        //
+
+        if (!findPhysicalDevice()) {
+            showError("Unable to find an appropriate physical device");
+            return false;
+        }
         //        if (!findGraphicsQueue()) {
         //            showError("Unable to find a compatible graphics queue");
         //            return false;
@@ -362,6 +370,71 @@ public final class Application {
         }
 
         surface = ptr.get(0);
+        return true;
+    }
+
+    private boolean findPhysicalDevice() {
+        assert vulkanInstance != null;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        // Try to find a suitable device, preferably a dedicated gpu
+        final VkPhysicalDevice selectedDev;
+        {
+            val list = new ArrayList<VkPhysicalDevice>();
+
+            // Enumerate all physical devices
+            val count = stack.callocInt(1);
+            vkEnumeratePhysicalDevices(vulkanInstance, count, null);
+            val ptr = stack.callocPointer(count.get(0));
+            vkEnumeratePhysicalDevices(vulkanInstance, count, ptr);
+
+            while (ptr.hasRemaining()) {
+                list.add(new VkPhysicalDevice(ptr.get(), vulkanInstance));
+            }
+
+            if (list.isEmpty()) {
+                // No devices found
+                return false;
+            }
+
+            val props = VkPhysicalDeviceProperties.calloc(stack);
+            // if you have issues, you can always just hardcode a GPU index while learning
+            var tempDev = list.getFirst(); // default to first GPU
+            // look through list and see if a dGPU exists
+            for (val dev : list) {
+                vkGetPhysicalDeviceProperties(dev, props);
+                if (props.deviceType() == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+                    tempDev = dev;
+                    break;
+                }
+            }
+
+            selectedDev = tempDev;
+        }
+
+        // Ensure the desired swapchain format is supported
+        {
+            val count = stack.callocInt(1);
+            vkGetPhysicalDeviceSurfaceFormatsKHR(selectedDev, surface, count, null);
+            val formats = VkSurfaceFormatKHR.calloc(count.get(0), stack);
+            vkGetPhysicalDeviceSurfaceFormatsKHR(selectedDev, surface, count, formats);
+
+            var isSupported = false;
+            for (val format : formats) {
+                if (format.format() == swapchainFormat) {
+                    isSupported = true;
+                    break;
+                }
+            }
+
+            if (!isSupported) {
+                showError("Requested swapchain format is not supported by the surface");
+                return false;
+            }
+        }
+
+        physicalDevice = selectedDev;
         return true;
     }
 
