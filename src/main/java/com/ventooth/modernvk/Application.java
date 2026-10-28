@@ -31,6 +31,7 @@ import static org.lwjgl.sdl.SDLVideo.SDL_CreateWindow;
 import static org.lwjgl.sdl.SDLVideo.SDL_DestroyWindow;
 import static org.lwjgl.sdl.SDLVideo.SDL_WINDOW_RESIZABLE;
 import static org.lwjgl.sdl.SDLVideo.SDL_WINDOW_VULKAN;
+import static org.lwjgl.sdl.SDLVulkan.SDL_Vulkan_CreateSurface;
 import static org.lwjgl.sdl.SDLVulkan.SDL_Vulkan_GetInstanceExtensions;
 import static org.lwjgl.sdl.SDLVulkan.SDL_Vulkan_GetVkGetInstanceProcAddr;
 import static org.lwjgl.system.MemoryUtil.NULL;
@@ -41,6 +42,7 @@ import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WAR
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT;
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
+import static org.lwjgl.vulkan.KHRSurface.vkDestroySurfaceKHR;
 import static org.lwjgl.vulkan.VK10.VK_FALSE;
 import static org.lwjgl.vulkan.VK10.VK_SUCCESS;
 import static org.lwjgl.vulkan.VK10.vkCreateInstance;
@@ -54,7 +56,7 @@ public final class Application {
     //	constexpr static VkFormat swapchainFormat{ VK_FORMAT_B8G8R8A8_SRGB };
     //	constexpr static VkFormat depthFormat{ VK_FORMAT_D32_SFLOAT };
 
-    private long window = NULL;
+    private /*(SDL_Window *)*/ long window = NULL;
     private int width = 1280;
     private int height = 720;
     private boolean running = false;
@@ -64,9 +66,9 @@ public final class Application {
     // vulkan core
     private @Nullable VkDebugUtilsMessengerCallbackEXT debugCallback;
     private @Nullable VkInstance vulkanInstance = null;
+    private /*(VkSurfaceKHR)*/ long surface = NULL;
     //	VkPhysicalDevice physicalDevice = nullptr;
     //	VkDevice device = nullptr;
-    //	VkSurfaceKHR surface = nullptr;
     //	VmaAllocator vmaAllocator = nullptr;
     //
     //	// queue related
@@ -176,11 +178,13 @@ public final class Application {
         //        if (vmaAllocator) {
         //            vmaDestroyAllocator(vmaAllocator);
         //        }
-        //
-        //        // cleanup Vulkan
-        //        if (surface) {
-        //            vkDestroySurfaceKHR(vulkanInstance, surface, nullptr);
-        //        }
+
+        // cleanup Vulkan
+        if (surface != NULL) {
+            assert vulkanInstance != null;
+            vkDestroySurfaceKHR(vulkanInstance, surface, null);
+            surface = NULL;
+        }
         if (vulkanInstance != null) {
             vkDestroyInstance(vulkanInstance, null);
             vulkanInstance = null;
@@ -204,11 +208,11 @@ public final class Application {
             showError("Couldn't create a vulkan instance");
             return false;
         }
-        //
-        //        if (!createSurface()) {
-        //            showError("Couldn't create window surface");
-        //            return false;
-        //        }
+
+        if (!createSurface()) {
+            showError("Couldn't create window surface");
+            return false;
+        }
         //
         //        physicalDevice = findPhysicalDevice();
         //        if (!physicalDevice) {
@@ -338,8 +342,27 @@ public final class Application {
                                                  .ppEnabledLayerNames(layers)
                                                  .ppEnabledExtensionNames(extensions);
 
-        val vulkanInstancePtr = stack.callocPointer(1);
-        return vkCreateInstance(instCreateInfo, null, vulkanInstancePtr) == VK_SUCCESS;
+        val ptr = stack.callocPointer(1);
+        if (vkCreateInstance(instCreateInfo, null, ptr) != VK_SUCCESS) {
+            return false;
+        }
+
+        vulkanInstance = new VkInstance(ptr.get(0), instCreateInfo);
+        return true;
+    }
+
+    private boolean createSurface() {
+        assert window != NULL;
+        assert vulkanInstance != null;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+        val ptr = stack.callocLong(1);
+        if (!SDL_Vulkan_CreateSurface(window, vulkanInstance, null, ptr)) {
+            return false;
+        }
+
+        surface = ptr.get(0);
+        return true;
     }
 
     private void render() {
