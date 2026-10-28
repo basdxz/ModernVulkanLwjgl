@@ -756,7 +756,8 @@ public final class Application {
         {
             val devCreateInfo = VkDeviceCreateInfo.calloc(stack)
                                                   .sType$Default()
-                                                  .pNext(enabledFeatures)
+                                                  // Just append
+                                                  .pNext(enabledFeatures.address())
                                                   .pQueueCreateInfos(gfxQueueInfos)
                                                   .ppEnabledExtensionNames(extensions)
                                                   .pEnabledFeatures(null);
