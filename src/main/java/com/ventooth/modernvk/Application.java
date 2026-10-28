@@ -8,6 +8,7 @@ import org.lwjgl.PointerBuffer;
 import org.lwjgl.sdl.SDL_Event;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
+import org.lwjgl.util.vma.VmaAllocationCreateInfo;
 import org.lwjgl.util.vma.VmaAllocatorCreateInfo;
 import org.lwjgl.util.vma.VmaVulkanFunctions;
 import org.lwjgl.vulkan.VK;
@@ -18,6 +19,8 @@ import org.lwjgl.vulkan.VkDebugUtilsMessengerCreateInfoEXT;
 import org.lwjgl.vulkan.VkDevice;
 import org.lwjgl.vulkan.VkDeviceCreateInfo;
 import org.lwjgl.vulkan.VkDeviceQueueCreateInfo;
+import org.lwjgl.vulkan.VkImageCreateInfo;
+import org.lwjgl.vulkan.VkImageViewCreateInfo;
 import org.lwjgl.vulkan.VkInstance;
 import org.lwjgl.vulkan.VkInstanceCreateInfo;
 import org.lwjgl.vulkan.VkPhysicalDevice;
@@ -29,7 +32,10 @@ import org.lwjgl.vulkan.VkPhysicalDeviceVulkan13Features;
 import org.lwjgl.vulkan.VkPhysicalDeviceVulkan14Features;
 import org.lwjgl.vulkan.VkQueue;
 import org.lwjgl.vulkan.VkQueueFamilyProperties2;
+import org.lwjgl.vulkan.VkSemaphoreCreateInfo;
+import org.lwjgl.vulkan.VkSurfaceCapabilitiesKHR;
 import org.lwjgl.vulkan.VkSurfaceFormatKHR;
+import org.lwjgl.vulkan.VkSwapchainCreateInfoKHR;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -51,9 +57,13 @@ import static org.lwjgl.sdl.SDLVulkan.SDL_Vulkan_CreateSurface;
 import static org.lwjgl.sdl.SDLVulkan.SDL_Vulkan_GetInstanceExtensions;
 import static org.lwjgl.sdl.SDLVulkan.SDL_Vulkan_GetVkGetInstanceProcAddr;
 import static org.lwjgl.system.MemoryUtil.NULL;
+import static org.lwjgl.util.vma.Vma.VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 import static org.lwjgl.util.vma.Vma.VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+import static org.lwjgl.util.vma.Vma.VMA_MEMORY_USAGE_AUTO;
 import static org.lwjgl.util.vma.Vma.vmaCreateAllocator;
+import static org.lwjgl.util.vma.Vma.vmaCreateImage;
 import static org.lwjgl.util.vma.Vma.vmaDestroyAllocator;
+import static org.lwjgl.util.vma.Vma.vmaDestroyImage;
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT;
@@ -61,20 +71,42 @@ import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WAR
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT;
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
+import static org.lwjgl.vulkan.KHRSurface.VK_COLORSPACE_SRGB_NONLINEAR_KHR;
+import static org.lwjgl.vulkan.KHRSurface.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+import static org.lwjgl.vulkan.KHRSurface.VK_PRESENT_MODE_FIFO_KHR;
+import static org.lwjgl.vulkan.KHRSurface.VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 import static org.lwjgl.vulkan.KHRSurface.vkDestroySurfaceKHR;
+import static org.lwjgl.vulkan.KHRSurface.vkGetPhysicalDeviceSurfaceCapabilitiesKHR;
 import static org.lwjgl.vulkan.KHRSurface.vkGetPhysicalDeviceSurfaceFormatsKHR;
 import static org.lwjgl.vulkan.KHRSurface.vkGetPhysicalDeviceSurfaceSupportKHR;
 import static org.lwjgl.vulkan.KHRSwapchain.VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+import static org.lwjgl.vulkan.KHRSwapchain.vkCreateSwapchainKHR;
+import static org.lwjgl.vulkan.KHRSwapchain.vkDestroySwapchainKHR;
+import static org.lwjgl.vulkan.KHRSwapchain.vkGetSwapchainImagesKHR;
 import static org.lwjgl.vulkan.VK10.VK_FALSE;
 import static org.lwjgl.vulkan.VK10.VK_FORMAT_B8G8R8A8_SRGB;
+import static org.lwjgl.vulkan.VK10.VK_FORMAT_D32_SFLOAT;
+import static org.lwjgl.vulkan.VK10.VK_IMAGE_ASPECT_COLOR_BIT;
+import static org.lwjgl.vulkan.VK10.VK_IMAGE_ASPECT_DEPTH_BIT;
+import static org.lwjgl.vulkan.VK10.VK_IMAGE_LAYOUT_UNDEFINED;
+import static org.lwjgl.vulkan.VK10.VK_IMAGE_TILING_OPTIMAL;
+import static org.lwjgl.vulkan.VK10.VK_IMAGE_TYPE_2D;
+import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+import static org.lwjgl.vulkan.VK10.VK_IMAGE_VIEW_TYPE_2D;
 import static org.lwjgl.vulkan.VK10.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 import static org.lwjgl.vulkan.VK10.VK_QUEUE_GRAPHICS_BIT;
+import static org.lwjgl.vulkan.VK10.VK_SAMPLE_COUNT_1_BIT;
 import static org.lwjgl.vulkan.VK10.VK_SUCCESS;
 import static org.lwjgl.vulkan.VK10.VK_TRUE;
 import static org.lwjgl.vulkan.VK10.vkCreateDevice;
+import static org.lwjgl.vulkan.VK10.vkCreateImageView;
 import static org.lwjgl.vulkan.VK10.vkCreateInstance;
+import static org.lwjgl.vulkan.VK10.vkCreateSemaphore;
 import static org.lwjgl.vulkan.VK10.vkDestroyDevice;
+import static org.lwjgl.vulkan.VK10.vkDestroyImageView;
 import static org.lwjgl.vulkan.VK10.vkDestroyInstance;
+import static org.lwjgl.vulkan.VK10.vkDestroySemaphore;
 import static org.lwjgl.vulkan.VK10.vkEnumeratePhysicalDevices;
 import static org.lwjgl.vulkan.VK10.vkGetDeviceQueue;
 import static org.lwjgl.vulkan.VK10.vkGetPhysicalDeviceProperties;
@@ -86,10 +118,11 @@ import static org.lwjgl.vulkan.VK14.VK_API_VERSION_1_4;
 public final class Application {
     private static final int VulkanVersion = VK_API_VERSION_1_4;
     private static final int swapchainFormat = VK_FORMAT_B8G8R8A8_SRGB;
+    private static final int depthFormat = VK_FORMAT_D32_SFLOAT;
     //	constexpr static uint32_t MaxFramesInFlight{ 2 };
     //	constexpr static VkFormat depthFormat{ VK_FORMAT_D32_SFLOAT };
 
-    private /*(SDL_Window *)*/ long window = NULL;
+    private /*(SDL_Window*)*/ long window = NULL;
     private int width = 1280;
     private int height = 720;
     private boolean running = false;
@@ -103,23 +136,24 @@ public final class Application {
     private @Nullable VkPhysicalDevice physicalDevice = null;
     private @Nullable VkDevice device = null;
     private /*(VmaAllocator)*/ long vmaAllocator = NULL;
-    //
+
     // queue related
     private int gfxQueueFamIdx = -1;
     private @Nullable VkQueue gfxQueue = null;
-    //
-    //	// swapchain related
-    //	VkSwapchainKHR swapchain = nullptr;
-    //	std::vector<VkImage> swapchainImages;
-    //	std::vector<VkImageView> swapchainImageViews;
-    //	std::vector<VkSemaphore> renderCompleteSemaphores;
+
+    // swapchain related
+    private /*(VkSwapchainKHR)*/ long swapchain = NULL;
+    private /*(VkImage[])*/ long @Nullable [] swapchainImages = null;
+    private /*(VkImageView[])*/ long @Nullable [] swapchainImageViews = null;
+    private /*(VkSemaphore[])*/ long @Nullable [] renderCompleteSemaphores = null;
+
     //	bool requireSwapchainRecreate = false;
-    //	uint32_t swapchainWidth = 0;
-    //	uint32_t swapchainHeight = 0;
-    //
-    //	VkImage depthImage = nullptr;
-    //	VkImageView depthImageView = nullptr;
-    //	VmaAllocation depthImageAllocation = nullptr;
+    private int swapchainWidth = -1;
+    private int swapchainHeight = -1;
+
+    private /*(VkImage)*/ long depthImage = NULL;
+    private /*(VkImageView)*/ long depthImageView = NULL;
+    private /*(VmaAllocation)*/ long depthImageAllocation = NULL;
     //
     //	// graphics pipeline related
     //	VkPipelineLayout pipelineLayout = nullptr;
@@ -203,9 +237,9 @@ public final class Application {
         //        if (fragShader) {
         //            vkDestroyShaderModule(device, fragShader, nullptr);
         //        }
-        //
-        //        // cleanup swapchain
-        //        destroySwapchain();
+
+        // Cleanup swapchain
+        destroySwapchain();
 
         // VMA
         if (vmaAllocator != NULL) {
@@ -274,11 +308,12 @@ public final class Application {
             showError("Unable to create Vulkan Memory Allocator");
             return false;
         }
-        //
-        //        if (!createSwapchain(width, height)) {
-        //            showError("Unable to create swapchain");
-        //            return false;
-        //        }
+
+        if (!createSwapchain()) {
+            showError("Unable to create swapchain");
+            return false;
+        }
+
         //
         //        if (!createShaders()) {
         //            showError("Error creating shader modules");
@@ -623,8 +658,8 @@ public final class Application {
 
     private boolean initializeVMA() {
         assert vulkanInstance != null;
-        assert device != null;
         assert physicalDevice != null;
+        assert device != null;
 
         @Cleanup val stack = MemoryStack.stackPush();
 
@@ -646,6 +681,187 @@ public final class Application {
         }
         vmaAllocator = ptr.get(0);
         return true;
+    }
+
+    private boolean createSwapchain() {
+        assert physicalDevice != null;
+        assert surface != NULL;
+        assert device != null;
+        assert vmaAllocator != NULL;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        swapchainWidth = width;
+        swapchainHeight = height;
+
+        // Create new swapchain
+        {
+            val surfaceCaps = VkSurfaceCapabilitiesKHR.calloc(stack);
+            if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, surfaceCaps) != VK_SUCCESS) {
+                showError("Couldn't get the surface capabilities");
+                return false;
+            }
+
+            val swapchainInfo = VkSwapchainCreateInfoKHR.calloc(stack)
+                                                        .sType$Default()
+                                                        .surface(surface)
+                                                        .minImageCount(surfaceCaps.minImageCount())
+                                                        .imageFormat(swapchainFormat)
+                                                        .imageColorSpace(VK_COLORSPACE_SRGB_NONLINEAR_KHR)
+                                                        .imageExtent(ext -> ext.set(swapchainWidth, swapchainHeight))
+                                                        .imageArrayLayers(1)
+                                                        .imageUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+                                                        .preTransform(VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
+                                                        .compositeAlpha(VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
+                                                        .presentMode(VK_PRESENT_MODE_FIFO_KHR);
+            val ptr = stack.callocLong(1);
+            if (vkCreateSwapchainKHR(device, swapchainInfo, null, ptr) != VK_SUCCESS) {
+                showError("Error creating swapchain");
+                return false;
+            }
+            swapchain = ptr.get(0);
+        }
+
+        // Grab the swapchain images
+        final int numImages;
+        {
+            val count = stack.callocInt(1);
+            vkGetSwapchainImagesKHR(device, swapchain, count, null);
+            val ptr = stack.callocLong(count.get(0));
+            vkGetSwapchainImagesKHR(device, swapchain, count, ptr);
+            numImages = count.get(0);
+
+            swapchainImages = new long[numImages];
+            ptr.get(swapchainImages);
+        }
+
+        // Create the swapchain image views
+        swapchainImageViews = new long[numImages];
+        {
+            val imgViewInfo = VkImageViewCreateInfo.calloc(stack)
+                                                   .sType$Default()
+                                                   .viewType(VK_IMAGE_VIEW_TYPE_2D)
+                                                   .format(swapchainFormat)
+                                                   .subresourceRange(s -> s.aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)
+                                                                           .levelCount(1)
+                                                                           .layerCount(1));
+            val ptr = stack.callocLong(1);
+            for (var i = 0; i < numImages; i++) {
+                imgViewInfo.image(swapchainImages[i]);
+                if (vkCreateImageView(device, imgViewInfo, null, ptr) != VK_SUCCESS) {
+                    showError("Error creating swapchain image view");
+                    return false;
+                }
+                swapchainImageViews[i] = ptr.get(0);
+            }
+        }
+
+        // Semaphores used to signal render completion
+        renderCompleteSemaphores = new long[numImages];
+        {
+            val semaphoreInfo = VkSemaphoreCreateInfo.calloc(stack)
+                                                     .sType$Default();
+            val ptr = stack.callocLong(1);
+            for (var i = 0; i < numImages; i++) {
+                if (vkCreateSemaphore(device, semaphoreInfo, null, ptr) != VK_SUCCESS) {
+                    showError("Error creating the render-complete semaphore");
+                    return false;
+                }
+                renderCompleteSemaphores[i] = ptr.get(0);
+            }
+        }
+
+        // Create depth image
+        {
+            val depthInfo = VkImageCreateInfo.calloc(stack)
+                                             .sType$Default()
+                                             .imageType(VK_IMAGE_TYPE_2D)
+                                             .format(depthFormat)
+                                             .extent(s -> s.set(swapchainWidth, swapchainHeight, 1))
+                                             .mipLevels(1)
+                                             .arrayLayers(1)
+                                             .samples(VK_SAMPLE_COUNT_1_BIT)
+                                             .tiling(VK_IMAGE_TILING_OPTIMAL)
+                                             .usage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+                                             .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED);
+            val allocInfo = VmaAllocationCreateInfo.calloc(stack)
+                                                   .flags(VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT)
+                                                   .usage(VMA_MEMORY_USAGE_AUTO);
+
+            val imgPtr = stack.callocLong(1);
+            val allocPtr = stack.callocPointer(1);
+            if (vmaCreateImage(vmaAllocator, depthInfo, allocInfo, imgPtr, allocPtr, null) != VK_SUCCESS) {
+                showError("Error allocating depth image");
+                return false;
+            }
+
+            depthImage = imgPtr.get(0);
+            depthImageAllocation = allocPtr.get(0);
+        }
+
+        // Create depth image view
+        {
+            val depthImgViewInfo = VkImageViewCreateInfo.calloc(stack)
+                                                        .image(depthImage)
+                                                        .viewType(VK_IMAGE_VIEW_TYPE_2D)
+                                                        .format(depthFormat)
+                                                        .subresourceRange(s -> s.aspectMask(VK_IMAGE_ASPECT_DEPTH_BIT)
+                                                                                .levelCount(1)
+                                                                                .layerCount(1));
+            val ptr = stack.callocLong(1);
+            if (vkCreateImageView(device, depthImgViewInfo, null, ptr) != VK_SUCCESS) {
+                showError("Error creating depth image view");
+                return false;
+            }
+            depthImageView = ptr.get(0);
+        }
+
+        return true;
+    }
+
+    private void destroySwapchain() {
+        assert device != null;
+
+        if (swapchainImageViews != null) {
+            for (var i = 0; i < swapchainImageViews.length; i++) {
+                var swapchainImgView = swapchainImageViews[i];
+                if (swapchainImgView != NULL) {
+                    vkDestroyImageView(device, swapchainImgView, null);
+                    swapchainImageViews[i] = NULL;
+                }
+            }
+            swapchainImageViews = null;
+        }
+
+        // Destroy render-complete semaphores
+        if (renderCompleteSemaphores != null) {
+            for (var i = 0; i < renderCompleteSemaphores.length; i++) {
+                var semaphore = renderCompleteSemaphores[i];
+                if (semaphore != NULL) {
+                    vkDestroySemaphore(device, semaphore, null);
+                    renderCompleteSemaphores[i] = NULL;
+                }
+            }
+            renderCompleteSemaphores = null;
+        }
+
+        if (swapchain != NULL) {
+            vkDestroySwapchainKHR(device, swapchain, null);
+            swapchain = NULL;
+        }
+
+        if (depthImageView != NULL) {
+            vkDestroyImageView(device, depthImageView, null);
+            depthImageView = NULL;
+        }
+
+        if (depthImageAllocation != NULL) {
+            assert depthImage != NULL;
+
+            vmaDestroyImage(vmaAllocator, depthImage, depthImageAllocation);
+            depthImage = NULL;
+            depthImageAllocation = NULL;
+        }
     }
 
     private void render() {
