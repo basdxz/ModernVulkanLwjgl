@@ -231,58 +231,58 @@ public final class Application {
     private static final int MaxFramesInFlight = 2;
     private static final String shaderEntryPoint = "main";
 
-    private /*(SDL_Window*)*/ long window = NULL;
-    private int width = 1280;
-    private int height = 720;
-    private long frameIndex = 0;
-    private long nextSignalValue = MaxFramesInFlight + 1;
+    private /*(SDL_Window*)*/ long m_window = NULL;
+    private int m_width = 1280;
+    private int m_height = 720;
+    private long m_frameIndex = 0;
+    private long m_nextSignalValue = MaxFramesInFlight + 1;
 
     // vulkan core
-    private @Nullable VkDebugUtilsMessengerCallbackEXT debugCallback;
-    private @Nullable VkInstance vulkanInstance = null;
-    private /*(VkSurfaceKHR)*/ long surface = NULL;
-    private @Nullable VkPhysicalDevice physicalDevice = null;
-    private @Nullable VkDevice device = null;
-    private /*(VmaAllocator)*/ long vmaAllocator = NULL;
+    private @Nullable VkDebugUtilsMessengerCallbackEXT m_debugCallback;
+    private @Nullable VkInstance m_vulkanInstance = null;
+    private /*(VkSurfaceKHR)*/ long m_surface = NULL;
+    private @Nullable VkPhysicalDevice m_physicalDevice = null;
+    private @Nullable VkDevice m_device = null;
+    private /*(VmaAllocator)*/ long m_vmaAllocator = NULL;
 
     // queue related
-    private int gfxQueueFamIdx = -1;
-    private @Nullable VkQueue gfxQueue = null;
+    private int m_gfxQueueFamIdx = -1;
+    private @Nullable VkQueue m_gfxQueue = null;
 
     // swapchain related
-    private /*(VkSwapchainKHR)*/ long swapchain = NULL;
-    private /*(VkImage[])*/ long @Nullable [] swapchainImages = null;
-    private /*(VkImageView[])*/ long @Nullable [] swapchainImageViews = null;
-    private /*(VkSemaphore[])*/ long @Nullable [] renderCompleteSemaphores = null;
+    private /*(VkSwapchainKHR)*/ long m_swapchain = NULL;
+    private /*(VkImage[])*/ long @Nullable [] m_swapchainImages = null;
+    private /*(VkImageView[])*/ long @Nullable [] m_swapchainImageViews = null;
+    private /*(VkSemaphore[])*/ long @Nullable [] m_renderCompleteSemaphores = null;
 
-    private boolean requireSwapchainRecreate = false;
-    private int swapchainWidth = -1;
-    private int swapchainHeight = -1;
+    private boolean m_requireSwapchainRecreate = false;
+    private int m_swapchainWidth = -1;
+    private int m_swapchainHeight = -1;
 
-    private /*(VkImage)*/ long depthImage = NULL;
-    private /*(VkImageView)*/ long depthImageView = NULL;
-    private /*(VmaAllocation)*/ long depthImageAllocation = NULL;
+    private /*(VkImage)*/ long m_depthImage = NULL;
+    private /*(VkImageView)*/ long m_depthImageView = NULL;
+    private /*(VmaAllocation)*/ long m_depthImageAllocation = NULL;
 
     // graphics pipeline related
-    private /*(VkPipelineLayout)*/ long pipelineLayout = NULL;
-    private /*(VkPipeline)*/ long pipeline = NULL;
+    private /*(VkPipelineLayout)*/ long m_pipelineLayout = NULL;
+    private /*(VkPipeline)*/ long m_pipeline = NULL;
 
     // shader resources
-    private /*(VkShaderModule)*/ long vertShader = NULL;
-    private /*(VkShaderModule)*/ long fragShader = NULL;
+    private /*(VkShaderModule)*/ long m_vertShader = NULL;
+    private /*(VkShaderModule)*/ long m_fragShader = NULL;
 
     // frame and synchronization resources
-    private /*(VkSemaphore)*/ long timelineSemaphore = NULL;
-    private FrameResources @Nullable [] frameResources = null;
+    private /*(VkSemaphore)*/ long m_timelineSemaphore = NULL;
+    private FrameResources @Nullable [] m_frameResources = null;
 
     private void showError(String errorMessage) {
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", errorMessage, window);
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", errorMessage, m_window);
     }
 
     public boolean initialize() {
         SDL_InitSubSystem(SDL_INIT_VIDEO);
-        window = SDL_CreateWindow("Vulkan Learning", width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
-        if (window == NULL) {
+        m_window = SDL_CreateWindow("Vulkan Learning", m_width, m_height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+        if (m_window == NULL) {
             showError("Error creating window");
             return false;
         }
@@ -302,8 +302,8 @@ public final class Application {
                     break;
                 } else if (event.type() == SDL_EVENT_WINDOW_RESIZED) {
                     val windowData = event.window();
-                    width = windowData.data1();
-                    height = windowData.data2();
+                    m_width = windowData.data1();
+                    m_height = windowData.data2();
                     break; // TODO: Should this be break?
                 }
             }
@@ -314,92 +314,92 @@ public final class Application {
 
     public void shutdown() {
         // wait in case resources are in use
-        if (device != null) {
-            vkDeviceWaitIdle(device);
+        if (m_device != null) {
+            vkDeviceWaitIdle(m_device);
         }
 
         // frame / sync object cleanup
-        if (timelineSemaphore != NULL) {
-            assert device != null;
-            vkDestroySemaphore(device, timelineSemaphore, null);
+        if (m_timelineSemaphore != NULL) {
+            assert m_device != null;
+            vkDestroySemaphore(m_device, m_timelineSemaphore, null);
         }
 
-        if (frameResources != null) {
-            assert device != null;
-            for (val res : frameResources) {
+        if (m_frameResources != null) {
+            assert m_device != null;
+            for (val res : m_frameResources) {
                 if (res.imageAcquiredSemaphore != NULL) {
-                    vkDestroySemaphore(device, res.imageAcquiredSemaphore, null);
+                    vkDestroySemaphore(m_device, res.imageAcquiredSemaphore, null);
                     res.imageAcquiredSemaphore = NULL;
                 }
                 if (res.commandPool != NULL) {
-                    vkDestroyCommandPool(device, res.commandPool, null); // destroys buffers implicitly
+                    vkDestroyCommandPool(m_device, res.commandPool, null); // destroys buffers implicitly
                     res.commandPool = NULL;
                     res.commandBuffer = null;
                 }
             }
-            frameResources = null;
+            m_frameResources = null;
         }
 
         // Pipeline cleanup
-        if (pipelineLayout != NULL) {
-            assert device != null;
-            vkDestroyPipelineLayout(device, pipelineLayout, null);
-            pipelineLayout = NULL;
+        if (m_pipelineLayout != NULL) {
+            assert m_device != null;
+            vkDestroyPipelineLayout(m_device, m_pipelineLayout, null);
+            m_pipelineLayout = NULL;
         }
-        if (pipeline != NULL) {
-            assert device != null;
-            vkDestroyPipeline(device, pipeline, null);
-            pipeline = NULL;
+        if (m_pipeline != NULL) {
+            assert m_device != null;
+            vkDestroyPipeline(m_device, m_pipeline, null);
+            m_pipeline = NULL;
         }
 
         // Cleanup shaders
-        if (vertShader != NULL) {
-            assert device != null;
-            vkDestroyShaderModule(device, vertShader, null);
-            vertShader = NULL;
+        if (m_vertShader != NULL) {
+            assert m_device != null;
+            vkDestroyShaderModule(m_device, m_vertShader, null);
+            m_vertShader = NULL;
         }
-        if (fragShader != NULL) {
-            assert device != null;
-            vkDestroyShaderModule(device, fragShader, null);
-            fragShader = NULL;
+        if (m_fragShader != NULL) {
+            assert m_device != null;
+            vkDestroyShaderModule(m_device, m_fragShader, null);
+            m_fragShader = NULL;
         }
 
         // Cleanup swapchain
         destroySwapchain();
 
         // VMA
-        if (vmaAllocator != NULL) {
-            vmaDestroyAllocator(vmaAllocator);
-            vmaAllocator = NULL;
+        if (m_vmaAllocator != NULL) {
+            vmaDestroyAllocator(m_vmaAllocator);
+            m_vmaAllocator = NULL;
         }
 
         // Cleanup Vulkan
-        gfxQueue = null;
-        if (device != null) {
-            vkDestroyDevice(device, null);
-            device = null;
+        m_gfxQueue = null;
+        if (m_device != null) {
+            vkDestroyDevice(m_device, null);
+            m_device = null;
         }
-        gfxQueueFamIdx = -1;
-        physicalDevice = null;
-        if (surface != NULL) {
-            assert vulkanInstance != null;
-            vkDestroySurfaceKHR(vulkanInstance, surface, null);
-            surface = NULL;
+        m_gfxQueueFamIdx = -1;
+        m_physicalDevice = null;
+        if (m_surface != NULL) {
+            assert m_vulkanInstance != null;
+            vkDestroySurfaceKHR(m_vulkanInstance, m_surface, null);
+            m_surface = NULL;
         }
-        if (vulkanInstance != null) {
-            vkDestroyInstance(vulkanInstance, null);
-            vulkanInstance = null;
+        if (m_vulkanInstance != null) {
+            vkDestroyInstance(m_vulkanInstance, null);
+            m_vulkanInstance = null;
         }
-        if (debugCallback != null) {
-            debugCallback.free();
-            debugCallback = null;
+        if (m_debugCallback != null) {
+            m_debugCallback.free();
+            m_debugCallback = null;
         }
         VK.destroy();
 
         // Cleanup SDL
-        if (window != NULL) {
-            SDL_DestroyWindow(window);
-            window = NULL;
+        if (m_window != NULL) {
+            SDL_DestroyWindow(m_window);
+            m_window = NULL;
         }
         SDL_Quit();
     }
@@ -525,13 +525,13 @@ public final class Application {
             val type = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
                        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
                        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-            debugCallback = VkDebugUtilsMessengerCallbackEXT.create(Application.this::debugCallback);
+            m_debugCallback = VkDebugUtilsMessengerCallbackEXT.create(Application.this::debugCallback);
             instCreateInfoDbg = VkDebugUtilsMessengerCreateInfoEXT.calloc(stack)
                                                                   .sType$Default()
                                                                   .flags(0)
                                                                   .messageSeverity(severity)
                                                                   .messageType(type)
-                                                                  .pfnUserCallback(debugCallback);
+                                                                  .pfnUserCallback(m_debugCallback);
         }
 
         val instCreateInfo = VkInstanceCreateInfo.calloc(stack)
@@ -546,27 +546,27 @@ public final class Application {
             return false;
         }
 
-        vulkanInstance = new VkInstance(ptr.get(0), instCreateInfo);
+        m_vulkanInstance = new VkInstance(ptr.get(0), instCreateInfo);
         return true;
     }
 
     private boolean createSurface() {
-        assert window != NULL;
-        assert vulkanInstance != null;
+        assert m_window != NULL;
+        assert m_vulkanInstance != null;
 
         @Cleanup val stack = MemoryStack.stackPush();
         val ptr = stack.callocLong(1);
-        if (!SDL_Vulkan_CreateSurface(window, vulkanInstance, null, ptr)) {
+        if (!SDL_Vulkan_CreateSurface(m_window, m_vulkanInstance, null, ptr)) {
             return false;
         }
 
-        surface = ptr.get(0);
+        m_surface = ptr.get(0);
         return true;
     }
 
     private boolean findPhysicalDevice() {
-        assert vulkanInstance != null;
-        assert surface != NULL;
+        assert m_vulkanInstance != null;
+        assert m_surface != NULL;
 
         @Cleanup val stack = MemoryStack.stackPush();
 
@@ -576,12 +576,12 @@ public final class Application {
 
             // Enumerate all physical devices
             val count = stack.callocInt(1);
-            vkEnumeratePhysicalDevices(vulkanInstance, count, null);
+            vkEnumeratePhysicalDevices(m_vulkanInstance, count, null);
             val ptr = stack.callocPointer(count.get(0));
-            vkEnumeratePhysicalDevices(vulkanInstance, count, ptr);
+            vkEnumeratePhysicalDevices(m_vulkanInstance, count, ptr);
 
             while (ptr.hasRemaining()) {
-                list.add(new VkPhysicalDevice(ptr.get(), vulkanInstance));
+                list.add(new VkPhysicalDevice(ptr.get(), m_vulkanInstance));
             }
 
             if (list.isEmpty()) {
@@ -601,16 +601,16 @@ public final class Application {
                 }
             }
 
-            physicalDevice = selectedDev;
+            m_physicalDevice = selectedDev;
         }
-        assert physicalDevice != null;
+        assert m_physicalDevice != null;
 
         // Ensure the desired swapchain format is supported
         {
             val count = stack.callocInt(1);
-            vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, count, null);
+            vkGetPhysicalDeviceSurfaceFormatsKHR(m_physicalDevice, m_surface, count, null);
             val formats = VkSurfaceFormatKHR.calloc(count.get(0), stack);
-            vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, count, formats);
+            vkGetPhysicalDeviceSurfaceFormatsKHR(m_physicalDevice, m_surface, count, formats);
 
             var isSupported = false;
             for (val format : formats) {
@@ -632,8 +632,8 @@ public final class Application {
     private boolean findGraphicsQueue() {
         // Eventually we'll have more complex queue lookup for presentation, etc.
 
-        assert surface != NULL;
-        assert physicalDevice != null;
+        assert m_surface != NULL;
+        assert m_physicalDevice != null;
         @Cleanup val stack = MemoryStack.stackPush();
 
         final int numQueues;
@@ -641,12 +641,12 @@ public final class Application {
         // Grab all the queue families
         {
             val count = stack.callocInt(1);
-            vkGetPhysicalDeviceQueueFamilyProperties2(physicalDevice, count, null);
+            vkGetPhysicalDeviceQueueFamilyProperties2(m_physicalDevice, count, null);
 
             propsList = VkQueueFamilyProperties2.calloc(count.get(0), stack);
             propsList.forEach(VkQueueFamilyProperties2::sType$Default);
 
-            vkGetPhysicalDeviceQueueFamilyProperties2(physicalDevice, count, propsList);
+            vkGetPhysicalDeviceQueueFamilyProperties2(m_physicalDevice, count, propsList);
             numQueues = count.get(0);
         }
 
@@ -658,7 +658,7 @@ public final class Application {
         val hasPresentSupport = stack.callocInt(1);
         for (var i = 0; i < numQueues; i++) {
             // Ensure this queue has presentation support
-            vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, surface, hasPresentSupport);
+            vkGetPhysicalDeviceSurfaceSupportKHR(m_physicalDevice, i, m_surface, hasPresentSupport);
             if (hasPresentSupport.get(0) != VK_TRUE) {
                 continue;
             }
@@ -667,7 +667,7 @@ public final class Application {
             val props = propsList.get(i);
             val familyProps = props.queueFamilyProperties();
             if ((familyProps.queueFlags() & VK_QUEUE_GRAPHICS_BIT) != 0) {
-                gfxQueueFamIdx = i;
+                m_gfxQueueFamIdx = i;
                 return true;
             }
         }
@@ -675,8 +675,8 @@ public final class Application {
     }
 
     private boolean createDevice() {
-        assert physicalDevice != null;
-        assert gfxQueueFamIdx != -1;
+        assert m_physicalDevice != null;
+        assert m_gfxQueueFamIdx != -1;
 
         @Cleanup val stack = MemoryStack.stackPush();
 
@@ -697,7 +697,7 @@ public final class Application {
             feats.pNext(feats11);
 
             // Query supported features
-            vkGetPhysicalDeviceFeatures2(physicalDevice, feats);
+            vkGetPhysicalDeviceFeatures2(m_physicalDevice, feats);
 
             // Check if what we need is supported
             if (!feats13.dynamicRendering() || !feats13.synchronization2() || !feats12.timelineSemaphore()) {
@@ -736,7 +736,7 @@ public final class Application {
         gfxQueueInfos.forEach(VkDeviceQueueCreateInfo::sType$Default);
         //noinspection resource
         gfxQueueInfos.get(0)
-                     .queueFamilyIndex(gfxQueueFamIdx)
+                     .queueFamilyIndex(m_gfxQueueFamIdx)
                      .pQueuePriorities(stack.floats(1F));
 
         // Device extension names, in particular for the swapchain
@@ -762,107 +762,107 @@ public final class Application {
                                                   .ppEnabledExtensionNames(extensions)
                                                   .pEnabledFeatures(null);
             val ptr = stack.callocPointer(1);
-            if (vkCreateDevice(physicalDevice, devCreateInfo, null, ptr) != VK_SUCCESS) {
+            if (vkCreateDevice(m_physicalDevice, devCreateInfo, null, ptr) != VK_SUCCESS) {
                 return false;
             }
-            device = new VkDevice(ptr.get(0), physicalDevice, devCreateInfo);
+            m_device = new VkDevice(ptr.get(0), m_physicalDevice, devCreateInfo);
         }
 
         // Grab the VkQueue object finally
         {
             val ptr = stack.callocPointer(1);
-            vkGetDeviceQueue(device, gfxQueueFamIdx, 0, ptr);
+            vkGetDeviceQueue(m_device, m_gfxQueueFamIdx, 0, ptr);
             if (ptr.get(0) == NULL) {
                 showError("Couldn't get the graphics queue");
                 return false;
             }
 
-            gfxQueue = new VkQueue(ptr.get(0), device);
+            m_gfxQueue = new VkQueue(ptr.get(0), m_device);
         }
         return true;
     }
 
     private boolean initializeVMA() {
-        assert vulkanInstance != null;
-        assert physicalDevice != null;
-        assert device != null;
+        assert m_vulkanInstance != null;
+        assert m_physicalDevice != null;
+        assert m_device != null;
 
         @Cleanup val stack = MemoryStack.stackPush();
 
         // See: https://github.com/LWJGL/lwjgl3/blob/8adda2367a10f0283ba7ac27a2222fcf7fc67212/modules/samples/src/test/java/org/lwjgl/demo/vulkan/khronos/HelloTriangle.java#L406-L416
         val vmaFuncInfo = VmaVulkanFunctions.calloc(stack)
-                                            .set(vulkanInstance, device);
+                                            .set(m_vulkanInstance, m_device);
 
         val vmaAllocInfo = VmaAllocatorCreateInfo.calloc(stack)
                                                  .flags(VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT)
-                                                 .physicalDevice(physicalDevice)
-                                                 .device(device)
+                                                 .physicalDevice(m_physicalDevice)
+                                                 .device(m_device)
                                                  .pVulkanFunctions(vmaFuncInfo)
-                                                 .instance(vulkanInstance)
+                                                 .instance(m_vulkanInstance)
                                                  .vulkanApiVersion(VulkanVersion);
 
         val ptr = stack.callocPointer(1);
         if (vmaCreateAllocator(vmaAllocInfo, ptr) != VK_SUCCESS) {
             return false;
         }
-        vmaAllocator = ptr.get(0);
+        m_vmaAllocator = ptr.get(0);
         return true;
     }
 
     private boolean createSwapchain() {
-        assert physicalDevice != null;
-        assert surface != NULL;
-        assert device != null;
-        assert vmaAllocator != NULL;
+        assert m_physicalDevice != null;
+        assert m_surface != NULL;
+        assert m_device != null;
+        assert m_vmaAllocator != NULL;
 
         @Cleanup val stack = MemoryStack.stackPush();
 
-        swapchainWidth = width;
-        swapchainHeight = height;
+        m_swapchainWidth = m_width;
+        m_swapchainHeight = m_height;
 
         // Create new swapchain
         {
             val surfaceCaps = VkSurfaceCapabilitiesKHR.calloc(stack);
-            if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, surfaceCaps) != VK_SUCCESS) {
+            if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_physicalDevice, m_surface, surfaceCaps) != VK_SUCCESS) {
                 showError("Couldn't get the surface capabilities");
                 return false;
             }
 
             val swapchainInfo = VkSwapchainCreateInfoKHR.calloc(stack)
                                                         .sType$Default()
-                                                        .surface(surface)
+                                                        .surface(m_surface)
                                                         .minImageCount(surfaceCaps.minImageCount())
                                                         .imageFormat(swapchainFormat)
                                                         .imageColorSpace(VK_COLORSPACE_SRGB_NONLINEAR_KHR)
-                                                        .imageExtent(ext -> ext.set(swapchainWidth, swapchainHeight))
+                                                        .imageExtent(ext -> ext.set(m_swapchainWidth, m_swapchainHeight))
                                                         .imageArrayLayers(1)
                                                         .imageUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
                                                         .preTransform(VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
                                                         .compositeAlpha(VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
                                                         .presentMode(VK_PRESENT_MODE_FIFO_KHR);
             val ptr = stack.callocLong(1);
-            if (vkCreateSwapchainKHR(device, swapchainInfo, null, ptr) != VK_SUCCESS) {
+            if (vkCreateSwapchainKHR(m_device, swapchainInfo, null, ptr) != VK_SUCCESS) {
                 showError("Error creating swapchain");
                 return false;
             }
-            swapchain = ptr.get(0);
+            m_swapchain = ptr.get(0);
         }
 
         // Grab the swapchain images
         final int numImages;
         {
             val count = stack.callocInt(1);
-            vkGetSwapchainImagesKHR(device, swapchain, count, null);
+            vkGetSwapchainImagesKHR(m_device, m_swapchain, count, null);
             val ptr = stack.callocLong(count.get(0));
-            vkGetSwapchainImagesKHR(device, swapchain, count, ptr);
+            vkGetSwapchainImagesKHR(m_device, m_swapchain, count, ptr);
             numImages = count.get(0);
 
-            swapchainImages = new long[numImages];
-            ptr.get(swapchainImages);
+            m_swapchainImages = new long[numImages];
+            ptr.get(m_swapchainImages);
         }
 
         // Create the swapchain image views
-        swapchainImageViews = new long[numImages];
+        m_swapchainImageViews = new long[numImages];
         {
             val imgViewInfo = VkImageViewCreateInfo.calloc(stack)
                                                    .sType$Default()
@@ -873,27 +873,27 @@ public final class Application {
                                                                            .layerCount(1));
             val ptr = stack.callocLong(1);
             for (var i = 0; i < numImages; i++) {
-                imgViewInfo.image(swapchainImages[i]);
-                if (vkCreateImageView(device, imgViewInfo, null, ptr) != VK_SUCCESS) {
+                imgViewInfo.image(m_swapchainImages[i]);
+                if (vkCreateImageView(m_device, imgViewInfo, null, ptr) != VK_SUCCESS) {
                     showError("Error creating swapchain image view");
                     return false;
                 }
-                swapchainImageViews[i] = ptr.get(0);
+                m_swapchainImageViews[i] = ptr.get(0);
             }
         }
 
         // Semaphores used to signal render completion
-        renderCompleteSemaphores = new long[numImages];
+        m_renderCompleteSemaphores = new long[numImages];
         {
             val semaphoreInfo = VkSemaphoreCreateInfo.calloc(stack)
                                                      .sType$Default();
             val ptr = stack.callocLong(1);
             for (var i = 0; i < numImages; i++) {
-                if (vkCreateSemaphore(device, semaphoreInfo, null, ptr) != VK_SUCCESS) {
+                if (vkCreateSemaphore(m_device, semaphoreInfo, null, ptr) != VK_SUCCESS) {
                     showError("Error creating the render-complete semaphore");
                     return false;
                 }
-                renderCompleteSemaphores[i] = ptr.get(0);
+                m_renderCompleteSemaphores[i] = ptr.get(0);
             }
         }
 
@@ -903,7 +903,7 @@ public final class Application {
                                              .sType$Default()
                                              .imageType(VK_IMAGE_TYPE_2D)
                                              .format(depthFormat)
-                                             .extent(s -> s.set(swapchainWidth, swapchainHeight, 1))
+                                             .extent(s -> s.set(m_swapchainWidth, m_swapchainHeight, 1))
                                              .mipLevels(1)
                                              .arrayLayers(1)
                                              .samples(VK_SAMPLE_COUNT_1_BIT)
@@ -916,83 +916,83 @@ public final class Application {
 
             val imgPtr = stack.callocLong(1);
             val allocPtr = stack.callocPointer(1);
-            if (vmaCreateImage(vmaAllocator, depthInfo, allocInfo, imgPtr, allocPtr, null) != VK_SUCCESS) {
+            if (vmaCreateImage(m_vmaAllocator, depthInfo, allocInfo, imgPtr, allocPtr, null) != VK_SUCCESS) {
                 showError("Error allocating depth image");
                 return false;
             }
 
-            depthImage = imgPtr.get(0);
-            depthImageAllocation = allocPtr.get(0);
+            m_depthImage = imgPtr.get(0);
+            m_depthImageAllocation = allocPtr.get(0);
         }
 
         // Create depth image view
         {
             val depthImgViewInfo = VkImageViewCreateInfo.calloc(stack)
-                                                        .image(depthImage)
+                                                        .image(m_depthImage)
                                                         .viewType(VK_IMAGE_VIEW_TYPE_2D)
                                                         .format(depthFormat)
                                                         .subresourceRange(s -> s.aspectMask(VK_IMAGE_ASPECT_DEPTH_BIT)
                                                                                 .levelCount(1)
                                                                                 .layerCount(1));
             val ptr = stack.callocLong(1);
-            if (vkCreateImageView(device, depthImgViewInfo, null, ptr) != VK_SUCCESS) {
+            if (vkCreateImageView(m_device, depthImgViewInfo, null, ptr) != VK_SUCCESS) {
                 showError("Error creating depth image view");
                 return false;
             }
-            depthImageView = ptr.get(0);
+            m_depthImageView = ptr.get(0);
         }
 
         return true;
     }
 
     private void destroySwapchain() {
-        assert device != null;
+        assert m_device != null;
 
-        if (swapchainImageViews != null) {
-            for (var i = 0; i < swapchainImageViews.length; i++) {
-                var swapchainImgView = swapchainImageViews[i];
+        if (m_swapchainImageViews != null) {
+            for (var i = 0; i < m_swapchainImageViews.length; i++) {
+                var swapchainImgView = m_swapchainImageViews[i];
                 if (swapchainImgView != NULL) {
-                    vkDestroyImageView(device, swapchainImgView, null);
-                    swapchainImageViews[i] = NULL;
+                    vkDestroyImageView(m_device, swapchainImgView, null);
+                    m_swapchainImageViews[i] = NULL;
                 }
             }
-            swapchainImageViews = null;
+            m_swapchainImageViews = null;
         }
 
         // Destroy render-complete semaphores
-        if (renderCompleteSemaphores != null) {
-            for (var i = 0; i < renderCompleteSemaphores.length; i++) {
-                var semaphore = renderCompleteSemaphores[i];
+        if (m_renderCompleteSemaphores != null) {
+            for (var i = 0; i < m_renderCompleteSemaphores.length; i++) {
+                var semaphore = m_renderCompleteSemaphores[i];
                 if (semaphore != NULL) {
-                    vkDestroySemaphore(device, semaphore, null);
-                    renderCompleteSemaphores[i] = NULL;
+                    vkDestroySemaphore(m_device, semaphore, null);
+                    m_renderCompleteSemaphores[i] = NULL;
                 }
             }
-            renderCompleteSemaphores = null;
+            m_renderCompleteSemaphores = null;
         }
 
-        if (swapchain != NULL) {
-            vkDestroySwapchainKHR(device, swapchain, null);
-            swapchain = NULL;
+        if (m_swapchain != NULL) {
+            vkDestroySwapchainKHR(m_device, m_swapchain, null);
+            m_swapchain = NULL;
         }
 
-        if (depthImageView != NULL) {
-            vkDestroyImageView(device, depthImageView, null);
-            depthImageView = NULL;
+        if (m_depthImageView != NULL) {
+            vkDestroyImageView(m_device, m_depthImageView, null);
+            m_depthImageView = NULL;
         }
 
-        if (depthImageAllocation != NULL) {
-            assert depthImage != NULL;
+        if (m_depthImageAllocation != NULL) {
+            assert m_depthImage != NULL;
 
-            vmaDestroyImage(vmaAllocator, depthImage, depthImageAllocation);
-            depthImage = NULL;
-            depthImageAllocation = NULL;
+            vmaDestroyImage(m_vmaAllocator, m_depthImage, m_depthImageAllocation);
+            m_depthImage = NULL;
+            m_depthImageAllocation = NULL;
         }
     }
 
     private @NativeType("VkShaderModule") long createShaderModule(String fileName,
                                                                   @NativeType("shaderc_shader_kind") int kind) {
-        assert device != null;
+        assert m_device != null;
 
         val shaderPath = "shaders/" + fileName;
         val src = readTextFile(shaderPath);
@@ -1031,7 +1031,7 @@ public final class Application {
                                                      .sType$Default()
                                                      .pCode(spv);
             val ptr = stack.callocLong(1);
-            if (vkCreateShaderModule(device, moduleInfo, null, ptr) != VK_SUCCESS) {
+            if (vkCreateShaderModule(m_device, moduleInfo, null, ptr) != VK_SUCCESS) {
                 showError("Error creating shader module");
                 return NULL;
             }
@@ -1051,13 +1051,13 @@ public final class Application {
 
     private boolean createShaders() {
         // Create the shader modules that we'll need for the graphics pipeline
-        vertShader = createShaderModule("shader.vert", shaderc_vertex_shader);
-        fragShader = createShaderModule("shader.frag", shaderc_fragment_shader);
-        return vertShader != NULL && fragShader != NULL;
+        m_vertShader = createShaderModule("shader.vert", shaderc_vertex_shader);
+        m_fragShader = createShaderModule("shader.frag", shaderc_fragment_shader);
+        return m_vertShader != NULL && m_fragShader != NULL;
     }
 
     private boolean createGraphicsPipeline() {
-        assert device != null;
+        assert m_device != null;
 
         @Cleanup val stack = MemoryStack.stackPush();
 
@@ -1067,11 +1067,11 @@ public final class Application {
                                                                .sType$Default()
                                                                .setLayoutCount(0);
             val ptr = stack.callocLong(1);
-            if (vkCreatePipelineLayout(device, pipelineLayoutInfo, null, ptr) != VK_SUCCESS) {
+            if (vkCreatePipelineLayout(m_device, pipelineLayoutInfo, null, ptr) != VK_SUCCESS) {
                 showError("Unable to create the pipeline layout");
                 return false;
             }
-            pipelineLayout = ptr.get(0);
+            m_pipelineLayout = ptr.get(0);
         }
 
         // Configure the shader stages struct
@@ -1084,11 +1084,11 @@ public final class Application {
             //noinspection resource
             shaderStages.get(0)
                         .stage(VK_SHADER_STAGE_VERTEX_BIT)
-                        .module(vertShader);
+                        .module(m_vertShader);
             //noinspection resource
             shaderStages.get(1)
                         .stage(VK_SHADER_STAGE_FRAGMENT_BIT)
-                        .module(fragShader);
+                        .module(m_fragShader);
         }
 
         // Vertex pulling, don't define vertex input details
@@ -1168,21 +1168,21 @@ public final class Application {
                     .pDepthStencilState(depthStencilInfo)
                     .pColorBlendState(blendInfo)
                     .pDynamicState(dynamicStateInfo)
-                    .layout(pipelineLayout)
+                    .layout(m_pipelineLayout)
                     .renderPass(VK_NULL_HANDLE);
 
         val ptr = stack.callocLong(1);
-        if (vkCreateGraphicsPipelines(device, NULL, pipelineInfo, null, ptr) != VK_SUCCESS) {
+        if (vkCreateGraphicsPipelines(m_device, NULL, pipelineInfo, null, ptr) != VK_SUCCESS) {
             showError("Error creating the pipeline");
             return false;
         }
 
-        pipeline = ptr.get(0);
+        m_pipeline = ptr.get(0);
         return true;
     }
 
     private boolean createSyncResources() {
-        assert device != null;
+        assert m_device != null;
 
         @Cleanup val stack = MemoryStack.stackPush();
 
@@ -1196,26 +1196,26 @@ public final class Application {
                                                      .pNext(semaphoreTypeInfo);
 
             val ptr = stack.callocLong(1);
-            if (vkCreateSemaphore(device, semaphoreInfo, null, ptr) != VK_SUCCESS) {
+            if (vkCreateSemaphore(m_device, semaphoreInfo, null, ptr) != VK_SUCCESS) {
                 showError("Unable to create the timeline semaphore");
                 return false;
             }
 
-            timelineSemaphore = ptr.get(0);
+            m_timelineSemaphore = ptr.get(0);
         }
 
 
         // Initialize frame resources
-        frameResources = IntStream.range(0, MaxFramesInFlight)
-                                  .mapToObj(_ -> new FrameResources())
-                                  .toArray(FrameResources[]::new);
+        m_frameResources = IntStream.range(0, MaxFramesInFlight)
+                                    .mapToObj(_ -> new FrameResources())
+                                    .toArray(FrameResources[]::new);
 
         // per-frame image-acquire semaphores
         val semaphoreInfo = VkSemaphoreCreateInfo.calloc(stack)
                                                  .sType$Default();
         val ptr = stack.callocLong(1);
-        for (val res : frameResources) {
-            if (vkCreateSemaphore(device, semaphoreInfo, null, ptr) != VK_SUCCESS) {
+        for (val res : m_frameResources) {
+            if (vkCreateSemaphore(m_device, semaphoreInfo, null, ptr) != VK_SUCCESS) {
                 showError("Error creating the per-frame image-acquire semaphore");
                 return false;
             }
@@ -1225,8 +1225,8 @@ public final class Application {
     }
 
     private boolean createCommandBuffers() {
-        assert device != null;
-        assert frameResources != null;
+        assert m_device != null;
+        assert m_frameResources != null;
 
         @Cleanup val stack = MemoryStack.stackPush();
 
@@ -1234,10 +1234,10 @@ public final class Application {
         {
             val poolInfo = VkCommandPoolCreateInfo.calloc(stack)
                                                   .sType$Default()
-                                                  .queueFamilyIndex(gfxQueueFamIdx);
+                                                  .queueFamilyIndex(m_gfxQueueFamIdx);
             val ptr = stack.callocLong(1);
-            for (val res : frameResources) {
-                if (vkCreateCommandPool(device, poolInfo, null, ptr) != VK_SUCCESS) {
+            for (val res : m_frameResources) {
+                if (vkCreateCommandPool(m_device, poolInfo, null, ptr) != VK_SUCCESS) {
                     showError("Unable to create command buffer pool");
                     return false;
                 }
@@ -1252,13 +1252,13 @@ public final class Application {
                                                           .level(VK_COMMAND_BUFFER_LEVEL_PRIMARY)
                                                           .commandBufferCount(1);
             val ptr = stack.callocPointer(1);
-            for (val res : frameResources) {
+            for (val res : m_frameResources) {
                 cmdAllocInfo.commandPool(res.commandPool);
-                if (vkAllocateCommandBuffers(device, cmdAllocInfo, ptr) != VK_SUCCESS) {
+                if (vkAllocateCommandBuffers(m_device, cmdAllocInfo, ptr) != VK_SUCCESS) {
                     showError("Unable to allocate command buffer");
                     return false;
                 }
-                res.commandBuffer = new VkCommandBuffer(ptr.get(0), device);
+                res.commandBuffer = new VkCommandBuffer(ptr.get(0), m_device);
             }
         }
 
@@ -1266,25 +1266,25 @@ public final class Application {
     }
 
     private void render() {
-        assert device != null;
-        assert gfxQueue != null;
-        assert frameResources != null;
-        assert swapchainImages != null;
-        assert swapchainImageViews != null;
-        assert renderCompleteSemaphores != null;
+        assert m_device != null;
+        assert m_gfxQueue != null;
+        assert m_frameResources != null;
+        assert m_swapchainImages != null;
+        assert m_swapchainImageViews != null;
+        assert m_renderCompleteSemaphores != null;
 
         @Cleanup val stack = MemoryStack.stackPush();
 
         // first check if our swapchain is still valid
-        if (requireSwapchainRecreate) {
-            vkDeviceWaitIdle(device);
+        if (m_requireSwapchainRecreate) {
+            vkDeviceWaitIdle(m_device);
             destroySwapchain();
             createSwapchain();
-            requireSwapchainRecreate = false;
+            m_requireSwapchainRecreate = false;
         }
 
-        val frameResIndex = (int) (frameIndex++ % MaxFramesInFlight);
-        val signalValue = nextSignalValue++;
+        val frameResIndex = (int) (m_frameIndex++ % MaxFramesInFlight);
+        val signalValue = m_nextSignalValue++;
         val waitValue = signalValue - MaxFramesInFlight;
 
         // Wait on timeline
@@ -1292,22 +1292,22 @@ public final class Application {
             val waitInfo = VkSemaphoreWaitInfo.calloc(stack)
                                               .sType$Default()
                                               .semaphoreCount(1)
-                                              .pSemaphores(stack.longs(timelineSemaphore))
+                                              .pSemaphores(stack.longs(m_timelineSemaphore))
                                               .pValues(stack.longs(waitValue));
-            vkWaitSemaphores(device, waitInfo, Long.MAX_VALUE);
+            vkWaitSemaphores(m_device, waitInfo, Long.MAX_VALUE);
         }
 
         // Get the resources for this frame
         final FrameResources res;
         {
-            res = frameResources[frameResIndex];
+            res = m_frameResources[frameResIndex];
             assert res.commandPool != NULL;
             assert res.commandBuffer != null;
             assert res.imageAcquiredSemaphore != NULL;
         }
 
         // Now it's safe to start recording commands
-        vkResetCommandPool(device, res.commandPool, 0);
+        vkResetCommandPool(m_device, res.commandPool, 0);
 
         // Figure out what image in the swapchain is next
         final int imageIndex;
@@ -1316,8 +1316,7 @@ public final class Application {
         final long renderCompleteSemaphore;
         {
             val ptr = stack.callocInt(1);
-            val acquireResult = vkAcquireNextImageKHR(device,
-                                                      swapchain,
+            val acquireResult = vkAcquireNextImageKHR(m_device, m_swapchain,
                                                       Long.MAX_VALUE,
                                                       res.imageAcquiredSemaphore,
                                                       VK_NULL_HANDLE,
@@ -1328,16 +1327,16 @@ public final class Application {
             switch (acquireResult) {
                 case VK_ERROR_OUT_OF_DATE_KHR -> {
                     // Bail now
-                    requireSwapchainRecreate = true;
+                    m_requireSwapchainRecreate = true;
                     return;
                 }
                 // Can render this frame, recreate next time around
-                case VK_SUBOPTIMAL_KHR -> requireSwapchainRecreate = true;
+                case VK_SUBOPTIMAL_KHR -> m_requireSwapchainRecreate = true;
             }
 
-            swapchainImage = swapchainImages[imageIndex];
-            swapchainImageView = swapchainImageViews[imageIndex];
-            renderCompleteSemaphore = renderCompleteSemaphores[imageIndex];
+            swapchainImage = m_swapchainImages[imageIndex];
+            swapchainImageView = m_swapchainImageViews[imageIndex];
+            renderCompleteSemaphore = m_renderCompleteSemaphores[imageIndex];
 
             assert swapchainImage != NULL;
             assert swapchainImageView != NULL;
@@ -1379,7 +1378,7 @@ public final class Application {
                           .dstAccessMask(VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT)
                           .oldLayout(VK_IMAGE_LAYOUT_UNDEFINED)
                           .newLayout(VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
-                          .image(depthImage)
+                          .image(m_depthImage)
                           .subresourceRange(s -> s.aspectMask(VK_IMAGE_ASPECT_DEPTH_BIT)
                                                   .baseMipLevel(0)
                                                   .levelCount(1)
@@ -1405,7 +1404,7 @@ public final class Application {
                             .clearValue(clr -> clr.color(v -> v.float32(stack.floats(0.01F, 0.01F, 0.01F, 1F))));
             val depthAttachInfo = VkRenderingAttachmentInfo.calloc(stack)
                                                            .sType$Default();
-            depthAttachInfo.imageView(depthImageView)
+            depthAttachInfo.imageView(m_depthImageView)
                            .imageLayout(VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
                            .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR)
                            .storeOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
@@ -1415,7 +1414,7 @@ public final class Application {
             renderingInfo = VkRenderingInfo.calloc(stack)
                                            .sType$Default()
                                            .renderArea(a -> a.offset(o -> o.set(0, 0))
-                                                             .extent(ext -> ext.set(swapchainWidth, swapchainHeight)))
+                                                             .extent(ext -> ext.set(m_swapchainWidth, m_swapchainHeight)))
                                            .layerCount(1)
                                            .pColorAttachments(colorAttachInfos)
                                            .pDepthAttachment(depthAttachInfo);
@@ -1428,7 +1427,7 @@ public final class Application {
             val viewports = VkViewport.calloc(1, stack);
             //noinspection resource
             viewports.get(0)
-                     .set(0F, 0F, swapchainWidth, swapchainHeight, 0F, 1F);
+                     .set(0F, 0F, m_swapchainWidth, m_swapchainHeight, 0F, 1F);
             vkCmdSetViewport(res.commandBuffer, 0, viewports);
 
             // Set scissor state
@@ -1436,11 +1435,11 @@ public final class Application {
             //noinspection resource
             scissors.get(0)
                     .offset(o -> o.set(0, 0))
-                    .extent(ext -> ext.set(swapchainWidth, swapchainHeight));
+                    .extent(ext -> ext.set(m_swapchainWidth, m_swapchainHeight));
             vkCmdSetScissor(res.commandBuffer, 0, scissors);
 
             // Draw our triangle
-            vkCmdBindPipeline(res.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+            vkCmdBindPipeline(res.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
             vkCmdDraw(res.commandBuffer, 3, 1, 0, 0);
         }
         // End dynamic rendering
@@ -1492,7 +1491,7 @@ public final class Application {
                             .stageMask(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT);
             //noinspection resource
             semaphoreSignals.get(1)
-                            .semaphore(timelineSemaphore)
+                            .semaphore(m_timelineSemaphore)
                             .value(signalValue)
                             // wait before drawing to image
                             .stageMask(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
@@ -1510,17 +1509,17 @@ public final class Application {
                        .pCommandBufferInfos(cmdSubmitInfos)
                        .pSignalSemaphoreInfos(semaphoreSignals);
         }
-        vkQueueSubmit2(gfxQueue, submitInfos, VK_NULL_HANDLE);
+        vkQueueSubmit2(m_gfxQueue, submitInfos, VK_NULL_HANDLE);
 
         // Present the image
         val presentInfo = VkPresentInfoKHR.calloc(stack)
                                           .sType$Default()
                                           .pWaitSemaphores(stack.longs(renderCompleteSemaphore))
                                           .swapchainCount(1)
-                                          .pSwapchains(stack.longs(swapchain))
+                                          .pSwapchains(stack.longs(m_swapchain))
                                           .pImageIndices(stack.ints(imageIndex))
                                           .pResults(null);
-        vkQueuePresentKHR(gfxQueue, presentInfo);
+        vkQueuePresentKHR(m_gfxQueue, presentInfo);
     }
 
     private int debugCallback(int messageSeverity, int messageTypes, long pCallbackData, long pUserData) {
