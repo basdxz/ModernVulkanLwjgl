@@ -734,8 +734,23 @@ public final class Application {
             // Query supported features
             vkGetPhysicalDeviceFeatures2(m_physicalDevice, feats);
 
+            // @formatter:off
+            var allSupported = true;
+            allSupported &= feats13.dynamicRendering();
+            allSupported &= feats13.synchronization2();
+            allSupported &= feats12.timelineSemaphore();
+            allSupported &= feats12.bufferDeviceAddress();
+            allSupported &= feats12.scalarBlockLayout();
+            allSupported &= feats12.descriptorIndexing();
+            allSupported &= feats12.descriptorBindingSampledImageUpdateAfterBind();
+            allSupported &= feats12.descriptorBindingPartiallyBound();
+            allSupported &= feats12.runtimeDescriptorArray();
+            allSupported &= feats.features().shaderInt64();
+            allSupported &= feats.features().multiDrawIndirect();
+            // @formatter:on
+
             // Check if what we need is supported
-            if (!feats13.dynamicRendering() || !feats13.synchronization2() || !feats12.timelineSemaphore()) {
+            if (!allSupported) {
                 showError("Physical device doesn't meet the feature requirements");
                 return false;
             }
@@ -759,9 +774,19 @@ public final class Application {
             feats.pNext(feats11);
 
             // Enabling only what we need
+            // @formatter:off
             feats13.dynamicRendering(true);
             feats13.synchronization2(true);
             feats12.timelineSemaphore(true);
+            feats12.bufferDeviceAddress(true);
+            feats12.scalarBlockLayout(true);
+            feats12.descriptorIndexing(true);
+            feats12.descriptorBindingSampledImageUpdateAfterBind(true);
+            feats12.descriptorBindingPartiallyBound(true);
+            feats12.runtimeDescriptorArray(true);
+            feats.features().shaderInt64(true);
+            feats.features().multiDrawIndirect(true);
+            // @formatter:on
 
             enabledFeatures = feats;
         }
