@@ -149,6 +149,7 @@ import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_G_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_R_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 import static org.lwjgl.vulkan.VK10.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+import static org.lwjgl.vulkan.VK10.VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COMPARE_OP_LESS;
 import static org.lwjgl.vulkan.VK10.VK_CULL_MODE_BACK_BIT;
 import static org.lwjgl.vulkan.VK10.VK_DYNAMIC_STATE_SCISSOR;
@@ -249,7 +250,7 @@ public final class Application {
     // queue related
     private int m_gfxQueueFamIdx = -1;
     private @Nullable VkQueue m_gfxQueue = null;
-    // VkCommandPool m_commandPool = nullptr;
+    private /*(VkCommandPool)*/ long  m_commandPool = NULL;
 
     // swapchain related
     private /*(VkSwapchainKHR)*/ long m_swapchain = NULL;
@@ -358,7 +359,6 @@ public final class Application {
             assert m_device != null;
             vkDestroySemaphore(m_device, m_timelineSemaphore, null);
         }
-
         if (m_frameResources != null) {
             assert m_device != null;
             for (val res : m_frameResources) {
@@ -373,6 +373,12 @@ public final class Application {
                 }
             }
             m_frameResources = null;
+        }
+        // one-time use command buffer pool
+        if (m_commandPool != NULL) {
+            assert m_device != null;
+            vkDestroyCommandPool(m_device, m_commandPool, null); // destroys buffers implicitly
+            m_commandPool = NULL;
         }
 
         // Pipeline cleanup
@@ -1291,6 +1297,20 @@ public final class Application {
         assert m_frameResources != null;
 
         @Cleanup val stack = MemoryStack.stackPush();
+
+        // Create a command pool for single use command buffers
+        {
+            val poolInfo = VkCommandPoolCreateInfo.calloc(stack)
+                                                  .sType$Default()
+                                                  .flags(VK_COMMAND_POOL_CREATE_TRANSIENT_BIT)
+                                                  .queueFamilyIndex(m_gfxQueueFamIdx);
+            val ptr = stack.callocLong(1);
+            if (vkCreateCommandPool(m_device, poolInfo, null, ptr) != VK_SUCCESS) {
+                showError("Unable to create command buffer pool");
+                return false;
+            }
+            m_commandPool = ptr.get(0);
+        }
 
         // We'll give each frame its own pool, faster cmd buffer resets this way
         {
