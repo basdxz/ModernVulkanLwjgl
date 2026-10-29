@@ -964,6 +964,7 @@ public final class Application {
         // Create depth image view
         {
             val depthImgViewInfo = VkImageViewCreateInfo.calloc(stack)
+                                                        .sType$Default()
                                                         .image(m_depthImage)
                                                         .viewType(VK_IMAGE_VIEW_TYPE_2D)
                                                         .format(depthFormat)
@@ -1409,9 +1410,11 @@ public final class Application {
             layoutBarriers.get(1) // Depth Barrier
                           .srcStageMask(VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT)
                           .srcAccessMask(0)
-                          // Both specified to control memory access at both stages (write)
+                          // Both (EARLY_FRAGMENT_TESTS + LATE_FRAGMENT_TESTS) specified to control memory access at both stages (write)
+                          // NOTE: COLOR_ATTACHMENT_OUTPUT added due to validation error
                           .dstStageMask(VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-                                        VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT)
+                                        VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT |
+                                        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT)
                           .dstAccessMask(VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT)
                           .oldLayout(VK_IMAGE_LAYOUT_UNDEFINED)
                           .newLayout(VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
