@@ -23,6 +23,12 @@ import org.lwjgl.vulkan.VkDebugUtilsMessengerCallbackDataEXT;
 import org.lwjgl.vulkan.VkDebugUtilsMessengerCallbackEXT;
 import org.lwjgl.vulkan.VkDebugUtilsMessengerCreateInfoEXT;
 import org.lwjgl.vulkan.VkDependencyInfo;
+import org.lwjgl.vulkan.VkDescriptorPoolCreateInfo;
+import org.lwjgl.vulkan.VkDescriptorPoolSize;
+import org.lwjgl.vulkan.VkDescriptorSetAllocateInfo;
+import org.lwjgl.vulkan.VkDescriptorSetLayoutBinding;
+import org.lwjgl.vulkan.VkDescriptorSetLayoutBindingFlagsCreateInfo;
+import org.lwjgl.vulkan.VkDescriptorSetLayoutCreateInfo;
 import org.lwjgl.vulkan.VkDevice;
 import org.lwjgl.vulkan.VkDeviceCreateInfo;
 import org.lwjgl.vulkan.VkDeviceQueueCreateInfo;
@@ -152,6 +158,7 @@ import static org.lwjgl.vulkan.VK10.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COMPARE_OP_LESS;
 import static org.lwjgl.vulkan.VK10.VK_CULL_MODE_BACK_BIT;
+import static org.lwjgl.vulkan.VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 import static org.lwjgl.vulkan.VK10.VK_DYNAMIC_STATE_SCISSOR;
 import static org.lwjgl.vulkan.VK10.VK_DYNAMIC_STATE_VIEWPORT;
 import static org.lwjgl.vulkan.VK10.VK_FALSE;
@@ -179,12 +186,15 @@ import static org.lwjgl.vulkan.VK10.VK_SHADER_STAGE_VERTEX_BIT;
 import static org.lwjgl.vulkan.VK10.VK_SUCCESS;
 import static org.lwjgl.vulkan.VK10.VK_TRUE;
 import static org.lwjgl.vulkan.VK10.vkAllocateCommandBuffers;
+import static org.lwjgl.vulkan.VK10.vkAllocateDescriptorSets;
 import static org.lwjgl.vulkan.VK10.vkBeginCommandBuffer;
 import static org.lwjgl.vulkan.VK10.vkCmdBindPipeline;
 import static org.lwjgl.vulkan.VK10.vkCmdDraw;
 import static org.lwjgl.vulkan.VK10.vkCmdSetScissor;
 import static org.lwjgl.vulkan.VK10.vkCmdSetViewport;
 import static org.lwjgl.vulkan.VK10.vkCreateCommandPool;
+import static org.lwjgl.vulkan.VK10.vkCreateDescriptorPool;
+import static org.lwjgl.vulkan.VK10.vkCreateDescriptorSetLayout;
 import static org.lwjgl.vulkan.VK10.vkCreateDevice;
 import static org.lwjgl.vulkan.VK10.vkCreateGraphicsPipelines;
 import static org.lwjgl.vulkan.VK10.vkCreateImageView;
@@ -193,6 +203,8 @@ import static org.lwjgl.vulkan.VK10.vkCreatePipelineLayout;
 import static org.lwjgl.vulkan.VK10.vkCreateSemaphore;
 import static org.lwjgl.vulkan.VK10.vkCreateShaderModule;
 import static org.lwjgl.vulkan.VK10.vkDestroyCommandPool;
+import static org.lwjgl.vulkan.VK10.vkDestroyDescriptorPool;
+import static org.lwjgl.vulkan.VK10.vkDestroyDescriptorSetLayout;
 import static org.lwjgl.vulkan.VK10.vkDestroyDevice;
 import static org.lwjgl.vulkan.VK10.vkDestroyImageView;
 import static org.lwjgl.vulkan.VK10.vkDestroyInstance;
@@ -208,6 +220,10 @@ import static org.lwjgl.vulkan.VK10.vkGetPhysicalDeviceProperties;
 import static org.lwjgl.vulkan.VK10.vkResetCommandPool;
 import static org.lwjgl.vulkan.VK11.vkGetPhysicalDeviceFeatures2;
 import static org.lwjgl.vulkan.VK11.vkGetPhysicalDeviceQueueFamilyProperties2;
+import static org.lwjgl.vulkan.VK12.VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
+import static org.lwjgl.vulkan.VK12.VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+import static org.lwjgl.vulkan.VK12.VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+import static org.lwjgl.vulkan.VK12.VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
 import static org.lwjgl.vulkan.VK12.VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 import static org.lwjgl.vulkan.VK12.VK_SEMAPHORE_TYPE_TIMELINE;
 import static org.lwjgl.vulkan.VK12.vkWaitSemaphores;
@@ -229,7 +245,7 @@ public final class Application {
     private static final int VulkanVersion = VK_API_VERSION_1_4;
     private static final int swapchainFormat = VK_FORMAT_B8G8R8A8_SRGB;
     private static final int depthFormat = VK_FORMAT_D32_SFLOAT;
-    // constexpr static size_t MaxTextures = 1024;
+    private static final int MaxTextures = 1024;
     private static final int MaxFramesInFlight = 2;
     private static final String shaderEntryPoint = "main";
 
@@ -250,7 +266,7 @@ public final class Application {
     // queue related
     private int m_gfxQueueFamIdx = -1;
     private @Nullable VkQueue m_gfxQueue = null;
-    private /*(VkCommandPool)*/ long  m_commandPool = NULL;
+    private /*(VkCommandPool)*/ long m_commandPool = NULL;
 
     // swapchain related
     private /*(VkSwapchainKHR)*/ long m_swapchain = NULL;
@@ -296,9 +312,9 @@ public final class Application {
     //	std::vector<Material> m_materials;
 
     // descriptors
-    //	VkDescriptorSetLayout m_globalDSLayout = nullptr;
-    //	VkDescriptorSet m_globalDescSet = nullptr;
-    //	VkDescriptorPool m_descPool = nullptr;
+    private /*(VkDescriptorSetLayout)*/ long m_globalDSLayout = NULL;
+    private /*(VkDescriptorSet)*/ long m_globalDescSet = NULL;
+    private /*(VkDescriptorPool)*/ long m_descPool = NULL;
 
     // game nodes and scene data
     //	NodeWorld m_nodeWorld;
@@ -352,6 +368,19 @@ public final class Application {
         // wait in case resources are in use
         if (m_device != null) {
             vkDeviceWaitIdle(m_device);
+        }
+
+        // clean up descriptor layouts and pool
+        if (m_globalDSLayout != NULL) {
+            assert m_device != null;
+            vkDestroyDescriptorSetLayout(m_device, m_globalDSLayout, null);
+            m_globalDSLayout = NULL;
+        }
+        if (m_descPool != NULL) {
+            assert m_device != null;
+            vkDestroyDescriptorPool(m_device, m_descPool, null); // destroys descriptor sets implicitly
+            m_descPool = NULL;
+            m_globalDescSet = NULL;
         }
 
         // frame / sync object cleanup
@@ -483,6 +512,11 @@ public final class Application {
 
         if (!createShaders()) {
             showError("Error creating shader modules");
+            return false;
+        }
+
+        if (!createDescriptorSets()) {
+            showError("Error creating descriptor sets");
             return false;
         }
 
@@ -1122,6 +1156,77 @@ public final class Application {
         m_vertShader = createShaderModule("shader.vert", shaderc_vertex_shader);
         m_fragShader = createShaderModule("shader.frag", shaderc_fragment_shader);
         return m_vertShader != NULL && m_fragShader != NULL;
+    }
+
+    private boolean createDescriptorSets() {
+        assert m_device != null;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        {
+            val poolSizes = VkDescriptorPoolSize.calloc(1, stack);
+            //noinspection resource
+            poolSizes.get(0)
+                     .type(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+                     .descriptorCount(MaxTextures);
+
+            val poolInfo = VkDescriptorPoolCreateInfo.calloc(stack)
+                                                     .sType$Default()
+                                                     .flags(VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT)
+                                                     .maxSets(1)
+                                                     .pPoolSizes(poolSizes);
+            val ptr = stack.callocLong(1);
+            if (vkCreateDescriptorPool(m_device, poolInfo, null, ptr) != VK_SUCCESS) {
+                showError("Unable to create descriptor pool");
+                return false;
+            }
+            m_descPool = ptr.get(0);
+        }
+
+        // Global descriptor set
+        {
+            val bindings = VkDescriptorSetLayoutBinding.calloc(1, stack);
+            //noinspection resource
+            bindings.get(0)
+                    .binding(0)
+                    .descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+                    .descriptorCount(MaxTextures)
+                    .stageFlags(VK_SHADER_STAGE_FRAGMENT_BIT);
+
+            val flags = stack.ints(VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
+                                   VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT);
+            val flagsInfo = VkDescriptorSetLayoutBindingFlagsCreateInfo.calloc(stack)
+                                                                       .sType$Default()
+                                                                       .pBindingFlags(flags);
+
+            val layoutInfo = VkDescriptorSetLayoutCreateInfo.calloc(stack)
+                                                            .sType$Default()
+                                                            .pNext(flagsInfo)
+                                                            .flags(VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT)
+                                                            .pBindings(bindings);
+            val ptr = stack.callocLong(1);
+            if (vkCreateDescriptorSetLayout(m_device, layoutInfo, null, ptr) != VK_SUCCESS) {
+                showError("Unable to create descriptor set layout");
+                return false;
+            }
+            m_globalDSLayout = ptr.get(0);
+        }
+
+        // Create the actual descriptor sets
+        {
+            val descSetAllocInfo = VkDescriptorSetAllocateInfo.calloc(stack)
+                                                              .sType$Default()
+                                                              .descriptorPool(m_descPool)
+                                                              .pSetLayouts(stack.longs(m_globalDSLayout));
+            val ptr = stack.callocLong(1);
+            if (vkAllocateDescriptorSets(m_device, descSetAllocInfo, ptr) != VK_SUCCESS) {
+                showError("Unable to allocate descriptor set");
+                return false;
+            }
+            m_globalDescSet = ptr.get(0);
+        }
+
+        return true;
     }
 
     private boolean createGraphicsPipeline() {
