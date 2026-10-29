@@ -46,7 +46,7 @@ repositories {
 dependencies {
     compileOnly("org.projectlombok:lombok:1.18.48")
     annotationProcessor("org.projectlombok:lombok:1.18.48")
-    compileOnly("org.jspecify:jspecify:1.0.1")
+    implementation("org.jspecify:jspecify:1.0.1")
 
     implementation(platform("org.lwjgl:lwjgl-bom:$lwjglVersion"))
 

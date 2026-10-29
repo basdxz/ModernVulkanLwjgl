@@ -16,6 +16,8 @@ public final class Main {
     }
 
     static void main() {
+        Structs.initialize();
+
         val app = new Application();
         if (app.initialize()) {
             app.run();
