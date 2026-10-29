@@ -228,6 +228,7 @@ public final class Application {
     private static final int VulkanVersion = VK_API_VERSION_1_4;
     private static final int swapchainFormat = VK_FORMAT_B8G8R8A8_SRGB;
     private static final int depthFormat = VK_FORMAT_D32_SFLOAT;
+    // constexpr static size_t MaxTextures = 1024;
     private static final int MaxFramesInFlight = 2;
     private static final String shaderEntryPoint = "main";
 
@@ -248,13 +249,13 @@ public final class Application {
     // queue related
     private int m_gfxQueueFamIdx = -1;
     private @Nullable VkQueue m_gfxQueue = null;
+    // VkCommandPool m_commandPool = nullptr;
 
     // swapchain related
     private /*(VkSwapchainKHR)*/ long m_swapchain = NULL;
     private /*(VkImage[])*/ long @Nullable [] m_swapchainImages = null;
     private /*(VkImageView[])*/ long @Nullable [] m_swapchainImageViews = null;
     private /*(VkSemaphore[])*/ long @Nullable [] m_renderCompleteSemaphores = null;
-
     private boolean m_requireSwapchainRecreate = false;
     private int m_swapchainWidth = -1;
     private int m_swapchainHeight = -1;
@@ -274,6 +275,40 @@ public final class Application {
     // frame and synchronization resources
     private /*(VkSemaphore)*/ long m_timelineSemaphore = NULL;
     private FrameResources @Nullable [] m_frameResources = null;
+
+    // cpu resources
+    //	std::vector<Mesh> m_meshes;
+    //	std::vector<Vertex> m_vertices;
+    //	std::vector<uint32_t> m_indices;
+    //	size_t m_vertOffset = 0;
+    //	size_t m_idxOffset = 0;
+
+    // gpu resources
+    //	uint32_t m_whitePixelImageId = 0;
+    //	uint32_t m_vertexBufferId = 0;
+    //	uint32_t m_indexBufferId = 0;
+    //	uint32_t m_matBufferId = 0;
+    //	std::vector<GPUImage> m_images;
+    //	std::vector<VkSampler> m_samplers;
+    //	std::vector<Texture> m_textures;
+    //	std::vector<GPUBuffer> m_buffers;
+    //	std::vector<Material> m_materials;
+
+    // descriptors
+    //	VkDescriptorSetLayout m_globalDSLayout = nullptr;
+    //	VkDescriptorSet m_globalDescSet = nullptr;
+    //	VkDescriptorPool m_descPool = nullptr;
+
+    // game nodes and scene data
+    //	NodeWorld m_nodeWorld;
+    //	uint32_t m_rootNodeId = 0;
+    //	uint32_t m_lastRootNodeId = 0;
+    //	std::vector<std::pair<Node *, glm::mat4>> m_nodeRenderStack;
+
+    // camera related
+    //	float m_camDistance = 3;
+    //	float m_camYaw = glm::half_pi<float>();
+    //	float m_camPitch = 0;
 
     private void showError(String errorMessage) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", errorMessage, m_window);
@@ -834,7 +869,8 @@ public final class Application {
                                                         .minImageCount(surfaceCaps.minImageCount())
                                                         .imageFormat(swapchainFormat)
                                                         .imageColorSpace(VK_COLORSPACE_SRGB_NONLINEAR_KHR)
-                                                        .imageExtent(ext -> ext.set(m_swapchainWidth, m_swapchainHeight))
+                                                        .imageExtent(ext -> ext.set(m_swapchainWidth,
+                                                                                    m_swapchainHeight))
                                                         .imageArrayLayers(1)
                                                         .imageUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
                                                         .preTransform(VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
@@ -1316,7 +1352,8 @@ public final class Application {
         final long renderCompleteSemaphore;
         {
             val ptr = stack.callocInt(1);
-            val acquireResult = vkAcquireNextImageKHR(m_device, m_swapchain,
+            val acquireResult = vkAcquireNextImageKHR(m_device,
+                                                      m_swapchain,
                                                       Long.MAX_VALUE,
                                                       res.imageAcquiredSemaphore,
                                                       VK_NULL_HANDLE,
@@ -1414,7 +1451,8 @@ public final class Application {
             renderingInfo = VkRenderingInfo.calloc(stack)
                                            .sType$Default()
                                            .renderArea(a -> a.offset(o -> o.set(0, 0))
-                                                             .extent(ext -> ext.set(m_swapchainWidth, m_swapchainHeight)))
+                                                             .extent(ext -> ext.set(m_swapchainWidth,
+                                                                                    m_swapchainHeight)))
                                            .layerCount(1)
                                            .pColorAttachments(colorAttachInfos)
                                            .pDepthAttachment(depthAttachInfo);
