@@ -60,6 +60,8 @@ dependencies {
     runtimeOnly("org.lwjgl:lwjgl-shaderc::$lwjglNatives")
     if (lwjglNatives == "natives-macos" || lwjglNatives == "natives-macos-arm64") runtimeOnly("org.lwjgl:lwjgl-vulkan::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-vma::$lwjglNatives")
+
+    implementation("de.javagl:jgltf-model:3.0.1")
 }
 
 application {
