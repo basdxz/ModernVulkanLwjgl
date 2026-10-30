@@ -87,8 +87,10 @@ import org.lwjgl.vulkan.VkViewport;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -113,6 +115,8 @@ import static org.lwjgl.sdl.SDLVideo.SDL_WINDOW_VULKAN;
 import static org.lwjgl.sdl.SDLVulkan.SDL_Vulkan_CreateSurface;
 import static org.lwjgl.sdl.SDLVulkan.SDL_Vulkan_GetInstanceExtensions;
 import static org.lwjgl.sdl.SDLVulkan.SDL_Vulkan_GetVkGetInstanceProcAddr;
+import static org.lwjgl.stb.STBImage.stbi_image_free;
+import static org.lwjgl.stb.STBImage.stbi_load;
 import static org.lwjgl.system.MemoryUtil.NULL;
 import static org.lwjgl.util.shaderc.Shaderc.shaderc_compilation_status_success;
 import static org.lwjgl.util.shaderc.Shaderc.shaderc_compile_into_spv;
@@ -448,7 +452,7 @@ public final class Application {
                                                  .compareEnable(false);
 
             val ptr = stack.callocLong(1);
-            if (vkCreateSampler(m_device, samplerInfo, null, ptr) != VK_SUCCESS){
+            if (vkCreateSampler(m_device, samplerInfo, null, ptr) != VK_SUCCESS) {
                 showError("Unable to create texture sampler");
                 return false;
             }
@@ -464,7 +468,6 @@ public final class Application {
 
         return true;
     }
-
 
 
     public void run() {
@@ -2262,10 +2265,55 @@ public final class Application {
             return;
         }
 
-        val gltfImages = model.getImages();
-//        gltfImages.getFirst().
+        val imageDir = filePath.getParent();
+        val images = loadImages(model, imageDir);
 
         // https://github.com/nickenchev/modern-vulkan/blob/lesson_02/src/application.cpp#L358C15-L358C38
+    }
+
+    private @Nullable Image[] loadImages(GlTF model, Path imageDir) {
+        assert m_arena != null;
+
+        val gltfImages = model.getImages();
+        val numImages = gltfImages.size();
+        val images = new Image[numImages];
+        for (var i = 0; i < numImages; i++) {
+            ByteBuffer stbiData = null;
+            String imageName = null;
+            try (val stack = MemoryStack.stackPush()) {
+                val gltfImage = gltfImages.get(i);
+                val imagePath = imageDir.resolve(gltfImage.getUri());
+                imageName = imagePath.toString();
+                IO.println("Loading image %d/%d: %s".formatted(i + 1, numImages, imageName));
+
+                val widthPtr = stack.callocInt(1);
+                val heightPtr = stack.callocInt(1);
+                val channelsPtr = stack.callocInt(1);
+
+                val fileName = imagePath.toAbsolutePath()
+                                        .toString();
+                stbiData = stbi_load(fileName, widthPtr, heightPtr, channelsPtr, 4);
+                if (stbiData == null) {
+                    throw new IllegalStateException("stbi gave no data");
+                }
+
+                val width = widthPtr.get(0);
+                val height = heightPtr.get(0);
+                val channels = channelsPtr.get(0);
+                val data = m_arena.allocate(stbiData.capacity());
+                images[i] = new Image(width, height, channels, data);
+            } catch (Exception e) {
+                if (imageName == null) {
+                    imageName = "Unknown at index: " + i + 1;
+                }
+                showError("Failed to load image: " + imageName);
+            } finally {
+                if (stbiData != null) {
+                    stbi_image_free(stbiData);
+                }
+            }
+        }
+        return images;
     }
 
     @NoArgsConstructor
