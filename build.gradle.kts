@@ -55,11 +55,13 @@ dependencies {
     implementation("org.lwjgl:lwjgl-shaderc")
     implementation("org.lwjgl:lwjgl-vulkan")
     implementation("org.lwjgl:lwjgl-vma")
+    implementation("org.lwjgl:lwjgl-stb")
     runtimeOnly("org.lwjgl:lwjgl::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-sdl::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-shaderc::$lwjglNatives")
     if (lwjglNatives == "natives-macos" || lwjglNatives == "natives-macos-arm64") runtimeOnly("org.lwjgl:lwjgl-vulkan::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-vma::$lwjglNatives")
+    runtimeOnly("org.lwjgl:lwjgl-stb::$lwjglNatives")
 
     implementation("de.javagl:jgltf-model:3.0.1")
 }
