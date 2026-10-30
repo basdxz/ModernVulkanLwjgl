@@ -1,5 +1,6 @@
 package com.ventooth.modernvk;
 
+import com.ventooth.modernvk.Structs.RenderItem;
 import lombok.Cleanup;
 import lombok.NoArgsConstructor;
 import lombok.val;
@@ -9,11 +10,14 @@ import org.lwjgl.sdl.SDL_Event;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.system.NativeType;
+import org.lwjgl.system.ffm.StructArray;
 import org.lwjgl.util.vma.VmaAllocationCreateInfo;
 import org.lwjgl.util.vma.VmaAllocatorCreateInfo;
 import org.lwjgl.util.vma.VmaVulkanFunctions;
 import org.lwjgl.vulkan.VK;
 import org.lwjgl.vulkan.VkApplicationInfo;
+import org.lwjgl.vulkan.VkBufferCreateInfo;
+import org.lwjgl.vulkan.VkBufferDeviceAddressInfo;
 import org.lwjgl.vulkan.VkCommandBuffer;
 import org.lwjgl.vulkan.VkCommandBufferAllocateInfo;
 import org.lwjgl.vulkan.VkCommandBufferBeginInfo;
@@ -32,6 +36,7 @@ import org.lwjgl.vulkan.VkDescriptorSetLayoutCreateInfo;
 import org.lwjgl.vulkan.VkDevice;
 import org.lwjgl.vulkan.VkDeviceCreateInfo;
 import org.lwjgl.vulkan.VkDeviceQueueCreateInfo;
+import org.lwjgl.vulkan.VkDrawIndexedIndirectCommand;
 import org.lwjgl.vulkan.VkGraphicsPipelineCreateInfo;
 import org.lwjgl.vulkan.VkImageCreateInfo;
 import org.lwjgl.vulkan.VkImageMemoryBarrier2;
@@ -68,12 +73,14 @@ import org.lwjgl.vulkan.VkSemaphoreSubmitInfo;
 import org.lwjgl.vulkan.VkSemaphoreTypeCreateInfo;
 import org.lwjgl.vulkan.VkSemaphoreWaitInfo;
 import org.lwjgl.vulkan.VkShaderModuleCreateInfo;
+import org.lwjgl.vulkan.VkSubmitInfo;
 import org.lwjgl.vulkan.VkSubmitInfo2;
 import org.lwjgl.vulkan.VkSurfaceCapabilitiesKHR;
 import org.lwjgl.vulkan.VkSurfaceFormatKHR;
 import org.lwjgl.vulkan.VkSwapchainCreateInfoKHR;
 import org.lwjgl.vulkan.VkViewport;
 
+import java.lang.foreign.MemorySegment;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Objects;
@@ -116,12 +123,17 @@ import static org.lwjgl.util.shaderc.Shaderc.shaderc_spirv_version_1_6;
 import static org.lwjgl.util.shaderc.Shaderc.shaderc_target_env_vulkan;
 import static org.lwjgl.util.shaderc.Shaderc.shaderc_vertex_shader;
 import static org.lwjgl.util.vma.Vma.VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+import static org.lwjgl.util.vma.Vma.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 import static org.lwjgl.util.vma.Vma.VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 import static org.lwjgl.util.vma.Vma.VMA_MEMORY_USAGE_AUTO;
 import static org.lwjgl.util.vma.Vma.vmaCreateAllocator;
+import static org.lwjgl.util.vma.Vma.vmaCreateBuffer;
 import static org.lwjgl.util.vma.Vma.vmaCreateImage;
 import static org.lwjgl.util.vma.Vma.vmaDestroyAllocator;
 import static org.lwjgl.util.vma.Vma.vmaDestroyImage;
+import static org.lwjgl.util.vma.Vma.vmaFreeMemory;
+import static org.lwjgl.util.vma.Vma.vmaMapMemory;
+import static org.lwjgl.util.vma.Vma.vmaUnmapMemory;
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT;
@@ -149,6 +161,8 @@ import static org.lwjgl.vulkan.KHRSwapchain.vkQueuePresentKHR;
 import static org.lwjgl.vulkan.VK10.VK_ATTACHMENT_LOAD_OP_CLEAR;
 import static org.lwjgl.vulkan.VK10.VK_ATTACHMENT_STORE_OP_DONT_CARE;
 import static org.lwjgl.vulkan.VK10.VK_ATTACHMENT_STORE_OP_STORE;
+import static org.lwjgl.vulkan.VK10.VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+import static org.lwjgl.vulkan.VK10.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_A_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_B_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_G_BIT;
@@ -183,6 +197,7 @@ import static org.lwjgl.vulkan.VK10.VK_QUEUE_GRAPHICS_BIT;
 import static org.lwjgl.vulkan.VK10.VK_SAMPLE_COUNT_1_BIT;
 import static org.lwjgl.vulkan.VK10.VK_SHADER_STAGE_FRAGMENT_BIT;
 import static org.lwjgl.vulkan.VK10.VK_SHADER_STAGE_VERTEX_BIT;
+import static org.lwjgl.vulkan.VK10.VK_SHARING_MODE_EXCLUSIVE;
 import static org.lwjgl.vulkan.VK10.VK_SUCCESS;
 import static org.lwjgl.vulkan.VK10.VK_TRUE;
 import static org.lwjgl.vulkan.VK10.vkAllocateCommandBuffers;
@@ -202,6 +217,7 @@ import static org.lwjgl.vulkan.VK10.vkCreateInstance;
 import static org.lwjgl.vulkan.VK10.vkCreatePipelineLayout;
 import static org.lwjgl.vulkan.VK10.vkCreateSemaphore;
 import static org.lwjgl.vulkan.VK10.vkCreateShaderModule;
+import static org.lwjgl.vulkan.VK10.vkDestroyBuffer;
 import static org.lwjgl.vulkan.VK10.vkDestroyCommandPool;
 import static org.lwjgl.vulkan.VK10.vkDestroyDescriptorPool;
 import static org.lwjgl.vulkan.VK10.vkDestroyDescriptorSetLayout;
@@ -215,17 +231,22 @@ import static org.lwjgl.vulkan.VK10.vkDestroyShaderModule;
 import static org.lwjgl.vulkan.VK10.vkDeviceWaitIdle;
 import static org.lwjgl.vulkan.VK10.vkEndCommandBuffer;
 import static org.lwjgl.vulkan.VK10.vkEnumeratePhysicalDevices;
+import static org.lwjgl.vulkan.VK10.vkFreeCommandBuffers;
 import static org.lwjgl.vulkan.VK10.vkGetDeviceQueue;
 import static org.lwjgl.vulkan.VK10.vkGetPhysicalDeviceProperties;
+import static org.lwjgl.vulkan.VK10.vkQueueSubmit;
+import static org.lwjgl.vulkan.VK10.vkQueueWaitIdle;
 import static org.lwjgl.vulkan.VK10.vkResetCommandPool;
 import static org.lwjgl.vulkan.VK11.vkGetPhysicalDeviceFeatures2;
 import static org.lwjgl.vulkan.VK11.vkGetPhysicalDeviceQueueFamilyProperties2;
+import static org.lwjgl.vulkan.VK12.VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 import static org.lwjgl.vulkan.VK12.VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
 import static org.lwjgl.vulkan.VK12.VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
 import static org.lwjgl.vulkan.VK12.VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
 import static org.lwjgl.vulkan.VK12.VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
 import static org.lwjgl.vulkan.VK12.VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 import static org.lwjgl.vulkan.VK12.VK_SEMAPHORE_TYPE_TIMELINE;
+import static org.lwjgl.vulkan.VK12.vkGetBufferDeviceAddress;
 import static org.lwjgl.vulkan.VK12.vkWaitSemaphores;
 import static org.lwjgl.vulkan.VK13.VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
 import static org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
@@ -400,6 +421,43 @@ public final class Application {
                     res.commandPool = NULL;
                     res.commandBuffer = null;
                 }
+
+                // Indirect draw
+                if (res.indirectDrawBuffer != null) {
+                    if (res.indirectDrawBuffer.allocation != NULL) {
+                        vmaUnmapMemory(m_vmaAllocator, res.indirectDrawBuffer.allocation);
+                        if (res.indirectDrawBuffer.vkBuffer != NULL) {
+                            vkDestroyBuffer(m_device, res.indirectDrawBuffer.vkBuffer, null);
+                            res.indirectDrawBuffer.vkBuffer = NULL;
+                        }
+                        vmaFreeMemory(m_vmaAllocator, res.indirectDrawBuffer.allocation);
+                        res.indirectDrawBuffer.allocation = NULL;
+                        res.indirectDrawBuffer.deviceAddress = NULL;
+                        res.indirectDrawPtr = null;
+                    } else {
+                        assert res.indirectDrawBuffer.vkBuffer == NULL;
+                        assert res.indirectDrawBuffer.deviceAddress == NULL;
+                        assert res.indirectDrawPtr == null;
+                    }
+                }
+
+                // Render items
+                if (res.renderItemBuffer != null) {
+                    if (res.renderItemBuffer.allocation != NULL) {
+                        vmaUnmapMemory(m_vmaAllocator, res.renderItemBuffer.allocation);
+                        if (res.renderItemBuffer.vkBuffer != NULL) {
+                            vkDestroyBuffer(m_device, res.renderItemBuffer.vkBuffer, null);
+                            res.renderItemBuffer.vkBuffer = NULL;
+                        }
+                        vmaFreeMemory(m_vmaAllocator, res.renderItemBuffer.allocation);
+                        res.renderItemBuffer.allocation = NULL;
+                        res.renderItemPtr = null;
+                    } else {
+                        assert res.renderItemBuffer.vkBuffer == NULL;
+                        assert res.renderItemBuffer.deviceAddress == NULL;
+                        assert res.renderItemPtr == null;
+                    }
+                }
             }
             m_frameResources = null;
         }
@@ -532,6 +590,11 @@ public final class Application {
 
         if (!createCommandBuffers()) {
             showError("Couldn't create command buffer objects");
+            return false;
+        }
+
+        if (!createIndirectDrawBuffers()) {
+            showError("Couldn't create buffers for indirect-drawing");
             return false;
         }
 
@@ -1452,6 +1515,170 @@ public final class Application {
         return true;
     }
 
+    private boolean createIndirectDrawBuffers() {
+        assert m_vmaAllocator != NULL;
+        assert m_frameResources != null;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        val indBuffPtr = stack.callocPointer(1);
+        val riBuffPtr = stack.callocPointer(1);
+        val maxNodes = 1024; // TODO: m_nodeWorld.maxNodes()
+        for (val res : m_frameResources) {
+            // Indirect drawing buffer
+            val indirectBuffByteSize = maxNodes * VkDrawIndexedIndirectCommand.SIZEOF;
+            res.indirectDrawBuffer = createBuffer(VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+                                                  indirectBuffByteSize,
+                                                  true,
+                                                  VMA_MEMORY_USAGE_AUTO);
+
+            // Map indirect draw buffer
+            if (vmaMapMemory(m_vmaAllocator, res.indirectDrawBuffer.allocation, indBuffPtr) != VK_SUCCESS) {
+                showError("Unable to map indirect draw buffer");
+                return false;
+            }
+            res.indirectDrawPtr = VkDrawIndexedIndirectCommand.create(indBuffPtr.get(0), maxNodes);
+
+            // Render item buffer (per-draw data)
+            val renderItemByteSize = maxNodes * RenderItem.$.sizeof();
+            res.renderItemBuffer = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                                renderItemByteSize,
+                                                true,
+                                                VMA_MEMORY_USAGE_AUTO);
+
+            // Map indirect draw buffer
+            if (vmaMapMemory(m_vmaAllocator, res.renderItemBuffer.allocation, riBuffPtr) != VK_SUCCESS) {
+                showError("Unable to map render item buffer");
+                return false;
+            }
+            val segment = MemorySegment.ofAddress(riBuffPtr.get(0))
+                                       .reinterpret(renderItemByteSize);
+            res.renderItemPtr = RenderItem.$.array(segment);
+        }
+        return true;
+    }
+
+    private GPUBuffer createBuffer(@NativeType("VkBufferUsageFlags") int usage,
+                                   long byteSize,
+                                   boolean mappable,
+                                   @NativeType("VmaMemoryUsage") int memoryUsage) {
+        assert m_device != null;
+        assert m_vmaAllocator != NULL;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        // Create buffer and vma allocation
+        val gpuBuff = new GPUBuffer();
+        {
+            val buffInfo = VkBufferCreateInfo.calloc(stack)
+                                             .sType$Default()
+                                             .size(byteSize)
+                                             .usage(usage)
+                                             .sharingMode(VK_SHARING_MODE_EXCLUSIVE);
+            val flags = mappable ? VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT : 0;
+            val allocInfo = VmaAllocationCreateInfo.calloc(stack)
+                                                   .flags(flags)
+                                                   .usage(memoryUsage);
+
+            val vkBufferPtr = stack.callocLong(1);
+            val allocationPtr = stack.callocPointer(1);
+            if (vmaCreateBuffer(m_vmaAllocator, buffInfo, allocInfo, vkBufferPtr, allocationPtr, null) != VK_SUCCESS) {
+                // C++ Example did: `return GPUBuffer {};`
+                throw new IllegalStateException();
+            }
+            gpuBuff.vkBuffer = vkBufferPtr.get(0);
+            gpuBuff.allocation = allocationPtr.get(0);
+        }
+
+        // BDA Send Device Pointer
+        if ((usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) != 0) {
+            val vertBdaInfo = VkBufferDeviceAddressInfo.calloc(stack)
+                                                       .sType$Default()
+                                                       .buffer(gpuBuff.vkBuffer);
+            gpuBuff.deviceAddress = vkGetBufferDeviceAddress(m_device, vertBdaInfo);
+        }
+        return gpuBuff;
+    }
+
+    private void mapCopyBufferData(GPUBuffer buffer, long bufferOffset, MemorySegment data) {
+        assert m_vmaAllocator != NULL;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        // Map and write buffer data
+        val buffPtr = stack.callocPointer(1);
+        if (vmaMapMemory(m_vmaAllocator, buffer.allocation, buffPtr) != VK_SUCCESS) {
+            showError("Unable to map buffer memory");
+            return;
+        }
+
+        try {
+            val buffData = MemorySegment.ofAddress(buffPtr.get(0) + bufferOffset)
+                                        .reinterpret(data.byteSize());
+            buffData.copyFrom(data);
+        } finally {
+            vmaUnmapMemory(m_vmaAllocator, buffer.allocation);
+        }
+    }
+
+    VkCommandBuffer startTransientCommandBuffer() {
+        assert m_device != null;
+        assert m_commandPool != NULL;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        // Allocate the transient command buffer
+        final VkCommandBuffer commandBuffer;
+        {
+            val cmdAllocInfos = VkCommandBufferAllocateInfo.calloc(stack)
+                                                           .sType$Default()
+                                                           .commandPool(m_commandPool)
+                                                           .level(VK_COMMAND_BUFFER_LEVEL_PRIMARY)
+                                                           .commandBufferCount(1);
+
+            val ptr = stack.callocPointer(1);
+            if (vkAllocateCommandBuffers(m_device, cmdAllocInfos, ptr) != VK_SUCCESS) {
+                showError("Unable to allocate command buffer");
+                throw new IllegalStateException(); //return nullptr;
+            }
+            commandBuffer = new VkCommandBuffer(ptr.get(0), m_device);
+        }
+
+        // Begin the command buffer
+        {
+            val beginInfo = VkCommandBufferBeginInfo.calloc(stack)
+                                                    .sType$Default()
+                                                    .flags(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+            if (vkBeginCommandBuffer(commandBuffer, beginInfo) != VK_SUCCESS) {
+                showError("Unable to begin command buffer");
+                vkFreeCommandBuffers(m_device, m_commandPool, commandBuffer);
+                throw new IllegalStateException(); //return nullptr;
+            }
+        }
+
+        return commandBuffer;
+    }
+
+    void submitTransientCommandBuffer(VkCommandBuffer commandBuffer) {
+        assert m_device != null;
+        assert m_gfxQueue != null;
+        assert m_commandPool != NULL;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        vkEndCommandBuffer(commandBuffer);
+
+        val submitInfo = VkSubmitInfo.calloc(stack)
+                                     .sType$Default()
+                                     .pCommandBuffers(stack.pointers(commandBuffer.address()));
+
+        vkQueueSubmit(m_gfxQueue, submitInfo, 1);
+        vkQueueWaitIdle(m_gfxQueue);
+        vkFreeCommandBuffers(m_device, m_commandPool, commandBuffer);
+    }
+
     private void render() {
         assert m_device != null;
         assert m_gfxQueue != null;
@@ -1721,9 +1948,21 @@ public final class Application {
     }
 
     @NoArgsConstructor
+    static final class GPUBuffer {
+        /*(VkBuffer)*/ long vkBuffer = NULL;
+        /*(uint64_t)*/ long deviceAddress = NULL;
+        /*(VmaAllocation)*/ long allocation = NULL;
+    }
+
+    @NoArgsConstructor
     static final class FrameResources {
         /*(VkCommandPool)*/ long commandPool = NULL;
         @Nullable VkCommandBuffer commandBuffer = null;
         /*(VkSemaphore)*/ long imageAcquiredSemaphore = NULL;
+        //        /*(VkDescriptorSet)*/ long descSet = NULL;
+        @Nullable GPUBuffer indirectDrawBuffer = null;
+        @Nullable GPUBuffer renderItemBuffer = null;
+        VkDrawIndexedIndirectCommand.@Nullable Buffer indirectDrawPtr = null;
+        @Nullable StructArray<RenderItem> renderItemPtr = null;
     }
 }

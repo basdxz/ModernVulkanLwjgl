@@ -1,5 +1,6 @@
 package com.ventooth.modernvk;
 
+import lombok.val;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.system.ffm.FFM;
 import org.lwjgl.system.ffm.FFMDefinition;
@@ -9,11 +10,13 @@ import java.lang.invoke.MethodHandles;
 
 public final class Structs {
     public static void initialize() {
-        FFM.ffmConfig(vec3.class,
-                      FFM.ffmConfigBuilder(MethodHandles.lookup())
-                         .withChecks(true)
-                         .withNullableAnnotation(Nullable.class)
-                         .build());
+        val cfg = FFM.ffmConfigBuilder(MethodHandles.lookup())
+                     .withChecks(true)
+                     .withNullableAnnotation(Nullable.class)
+                     .build();
+        FFM.ffmConfig(vec3.class, cfg);
+        FFM.ffmConfig(mat4.class, cfg);
+        FFM.ffmConfig(RenderItem.class, cfg);
     }
 
     @FFMDefinition("""
@@ -25,22 +28,99 @@ public final class Structs {
     public interface vec3 {
         // @formatter:off
         StructBinder<vec3> $ = FFM.ffmStruct(vec3.class)
-                                  .m("x", FFM.float32)
-                                  .m("y", FFM.float32)
-                                  .m("z", FFM.float32)
-                                  .build();
+            .m("x", FFM.float32)
+            .m("y", FFM.float32)
+            .m("z", FFM.float32)
+            .build();
+
+        vec3    x(float x);
+        float   x();
+
+        vec3    y(float y);
+        float   y();
+
+        vec3    z(float z);
+        float   z();
         // @formatter:on
+    }
 
-        vec3 x(float x);
+    @FFMDefinition("""
+            struct mat4 {
+                float m00, m10, m20, m30;
+                float m01, m11, m21, m31;
+                float m02, m12, m22, m32;
+                float m03, m13, m23, m33;
+            }""")
+    public interface mat4 {
+        // @formatter:off
+        StructBinder<mat4> $ = FFM.ffmStruct(mat4.class)
+            .m("m00", FFM.float32).m("m10", FFM.float32).m("m20", FFM.float32).m("m30", FFM.float32)
+            .m("m01", FFM.float32).m("m11", FFM.float32).m("m21", FFM.float32).m("m31", FFM.float32)
+            .m("m02", FFM.float32).m("m12", FFM.float32).m("m22", FFM.float32).m("m32", FFM.float32)
+            .m("m03", FFM.float32).m("m13", FFM.float32).m("m23", FFM.float32).m("m33", FFM.float32)
+            .build();
 
-        float x();
+        mat4    m00(float m00);
+        float   m00();
+        mat4    m10(float m10);
+        float   m10();
+        mat4    m20(float m20);
+        float   m20();
+        mat4    m30(float m30);
+        float   m30();
 
-        vec3 y(float y);
+        mat4    m01(float m01);
+        float   m01();
+        mat4    m11(float m11);
+        float   m11();
+        mat4    m21(float m21);
+        float   m21();
+        mat4    m31(float m31);
+        float   m31();
 
-        float y();
+        mat4    m02(float m02);
+        float   m02();
+        mat4    m12(float m12);
+        float   m12();
+        mat4    m22(float m22);
+        float   m22();
+        mat4    m32(float m32);
+        float   m32();
 
-        vec3 z(float z);
+        mat4    m03(float m03);
+        float   m03();
+        mat4    m13(float m13);
+        float   m13();
+        mat4    m23(float m23);
+        float   m23();
+        mat4    m33(float m33);
+        float   m33();
 
-        float z();
+        // @formatter:on
+    }
+
+    @FFMDefinition("""
+            struct RenderItem {
+                mat4 wvp;
+                mat4 worldMatrix;
+                uint32_t materialIndex;
+            }""")
+    public interface RenderItem {
+        // @formatter:off
+        StructBinder<RenderItem> $ = FFM.ffmStruct(RenderItem.class)
+                                        .m("wvp", mat4.$)
+                                        .m("worldMatrix", mat4.$)
+                                        .m("materialIndex", FFM.uint32_t)
+                                        .build();
+
+        RenderItem  wvp(mat4 wvp);
+        mat4        wvp();
+
+        RenderItem  worldMatrix(mat4 worldMatrix);
+        mat4        worldMatrix();
+
+        RenderItem  materialIndex(int materialIndex);
+        int         materialIndex();
+        // @formatter:on
     }
 }
