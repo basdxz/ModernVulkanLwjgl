@@ -70,6 +70,7 @@ import org.lwjgl.vulkan.VkQueueFamilyProperties2;
 import org.lwjgl.vulkan.VkRect2D;
 import org.lwjgl.vulkan.VkRenderingAttachmentInfo;
 import org.lwjgl.vulkan.VkRenderingInfo;
+import org.lwjgl.vulkan.VkSamplerCreateInfo;
 import org.lwjgl.vulkan.VkSemaphoreCreateInfo;
 import org.lwjgl.vulkan.VkSemaphoreSubmitInfo;
 import org.lwjgl.vulkan.VkSemaphoreTypeCreateInfo;
@@ -85,6 +86,8 @@ import org.lwjgl.vulkan.VkViewport;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.IntBuffer;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
@@ -185,6 +188,7 @@ import static org.lwjgl.vulkan.VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 import static org.lwjgl.vulkan.VK10.VK_DYNAMIC_STATE_SCISSOR;
 import static org.lwjgl.vulkan.VK10.VK_DYNAMIC_STATE_VIEWPORT;
 import static org.lwjgl.vulkan.VK10.VK_FALSE;
+import static org.lwjgl.vulkan.VK10.VK_FILTER_NEAREST;
 import static org.lwjgl.vulkan.VK10.VK_FORMAT_B8G8R8A8_SRGB;
 import static org.lwjgl.vulkan.VK10.VK_FORMAT_D32_SFLOAT;
 import static org.lwjgl.vulkan.VK10.VK_FORMAT_R8G8B8A8_SRGB;
@@ -208,6 +212,7 @@ import static org.lwjgl.vulkan.VK10.VK_PIPELINE_BIND_POINT_GRAPHICS;
 import static org.lwjgl.vulkan.VK10.VK_POLYGON_MODE_FILL;
 import static org.lwjgl.vulkan.VK10.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 import static org.lwjgl.vulkan.VK10.VK_QUEUE_GRAPHICS_BIT;
+import static org.lwjgl.vulkan.VK10.VK_SAMPLER_ADDRESS_MODE_REPEAT;
 import static org.lwjgl.vulkan.VK10.VK_SAMPLE_COUNT_1_BIT;
 import static org.lwjgl.vulkan.VK10.VK_SHADER_STAGE_FRAGMENT_BIT;
 import static org.lwjgl.vulkan.VK10.VK_SHADER_STAGE_VERTEX_BIT;
@@ -230,6 +235,7 @@ import static org.lwjgl.vulkan.VK10.vkCreateGraphicsPipelines;
 import static org.lwjgl.vulkan.VK10.vkCreateImageView;
 import static org.lwjgl.vulkan.VK10.vkCreateInstance;
 import static org.lwjgl.vulkan.VK10.vkCreatePipelineLayout;
+import static org.lwjgl.vulkan.VK10.vkCreateSampler;
 import static org.lwjgl.vulkan.VK10.vkCreateSemaphore;
 import static org.lwjgl.vulkan.VK10.vkCreateShaderModule;
 import static org.lwjgl.vulkan.VK10.vkDestroyBuffer;
@@ -242,6 +248,7 @@ import static org.lwjgl.vulkan.VK10.vkDestroyImageView;
 import static org.lwjgl.vulkan.VK10.vkDestroyInstance;
 import static org.lwjgl.vulkan.VK10.vkDestroyPipeline;
 import static org.lwjgl.vulkan.VK10.vkDestroyPipelineLayout;
+import static org.lwjgl.vulkan.VK10.vkDestroySampler;
 import static org.lwjgl.vulkan.VK10.vkDestroySemaphore;
 import static org.lwjgl.vulkan.VK10.vkDestroyShaderModule;
 import static org.lwjgl.vulkan.VK10.vkDeviceWaitIdle;
@@ -350,9 +357,9 @@ public final class Application {
     //	uint32_t m_indexBufferId = 0;
     //	uint32_t m_matBufferId = 0;
     private final List<GPUImage> m_images = new ArrayList<>();
-    //    	std::vector<VkSampler> m_samplers;
-    //	std::vector<Texture> m_textures;
-    //	std::vector<GPUBuffer> m_buffers;
+    private final List</*(VkSampler)*/Long> m_samplers = new ArrayList<>();
+    private final List<Texture> m_textures = new ArrayList<>();
+    private final List<GPUBuffer> m_buffers = new ArrayList<>();
     //	std::vector<Material> m_materials;
 
     // descriptors
@@ -387,6 +394,10 @@ public final class Application {
     }
 
     public boolean loadData() {
+        assert m_device != null;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+
         // Preallocate mem for vertex and index data
         val vertexBufferBytes = 64 * 1024 * 1024; // 64MB vertex budget
         val indexBufferBytes = 32 * 1024 * 1024; // 32MB index budget
@@ -422,8 +433,37 @@ public final class Application {
         submitTransientCommandBuffer(whiteImgCmdBuff); // submit and wait
         vmaDestroyBuffer(m_vmaAllocator, whiteStagingBuffer.vkBuffer, whiteStagingBuffer.allocation);
 
+        // Fallback texture sampler
+        final long sampler;
+        {
+            val samplerInfo = VkSamplerCreateInfo.calloc(stack)
+                                                 .sType$Default()
+                                                 .magFilter(VK_FILTER_NEAREST)
+                                                 .minFilter(VK_FILTER_NEAREST)
+                                                 .addressModeU(VK_SAMPLER_ADDRESS_MODE_REPEAT)
+                                                 .addressModeV(VK_SAMPLER_ADDRESS_MODE_REPEAT)
+                                                 .addressModeW(VK_SAMPLER_ADDRESS_MODE_REPEAT)
+                                                 .compareEnable(false);
+
+            val ptr = stack.callocLong(1);
+            if (vkCreateSampler(m_device, samplerInfo, null, ptr) != VK_SUCCESS){
+                showError("Unable to create texture sampler");
+                return false;
+            }
+            sampler = ptr.get(0);
+        }
+        // store sampler and get ID
+        m_samplers.add(sampler);
+        val whiteSamplerId = m_samplers.size();
+
+        m_textures.add(new Texture(m_whitePixelImageId, whiteSamplerId));
+
+        loadGltf("D:/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf");
+
         return true;
     }
+
+
 
     public void run() {
         var running = true;
@@ -453,8 +493,21 @@ public final class Application {
             vkDeviceWaitIdle(m_device);
         }
 
-        // delete textures and samplers
-        for (val img : m_images){
+        // clean up descriptor layouts and pool
+        if (m_globalDSLayout != NULL) {
+            assert m_device != null;
+            vkDestroyDescriptorSetLayout(m_device, m_globalDSLayout, null);
+            m_globalDSLayout = NULL;
+        }
+        if (m_descPool != NULL) {
+            assert m_device != null;
+            vkDestroyDescriptorPool(m_device, m_descPool, null); // destroys descriptor sets implicitly
+            m_descPool = NULL;
+            m_globalDescSet = NULL;
+        }
+
+        // Delete textures and samplers
+        for (val img : m_images) {
             if (img.imageView != NULL) {
                 assert m_device != null;
                 vkDestroyImageView(m_device, img.imageView, null);
@@ -473,22 +526,29 @@ public final class Application {
         }
         m_whitePixelImageId = 0;
         m_images.clear();
-//        for (VkSampler sampler : m_samplers) {
-//            vkDestroySampler(m_device, sampler, nullptr);
-//        }
+        for (val sampler : m_samplers) {
+            if (sampler != NULL) {
+                assert m_device != null;
+                vkDestroySampler(m_device, sampler, null);
+            }
+        }
+        m_samplers.clear();
+        m_textures.clear();
 
-        // clean up descriptor layouts and pool
-        if (m_globalDSLayout != NULL) {
-            assert m_device != null;
-            vkDestroyDescriptorSetLayout(m_device, m_globalDSLayout, null);
-            m_globalDSLayout = NULL;
+        // Delete buffers
+        for (val buff : m_buffers) {
+            if (buff.vkBuffer != NULL) {
+                assert m_device != null;
+                vkDestroyBuffer(m_device, buff.vkBuffer, null);
+                buff.vkBuffer = NULL;
+            }
+            if (buff.allocation != NULL) {
+                assert m_vmaAllocator != NULL;
+                vmaFreeMemory(m_vmaAllocator, buff.allocation);
+                buff.allocation = NULL;
+            }
         }
-        if (m_descPool != NULL) {
-            assert m_device != null;
-            vkDestroyDescriptorPool(m_device, m_descPool, null); // destroys descriptor sets implicitly
-            m_descPool = NULL;
-            m_globalDescSet = NULL;
-        }
+        m_buffers.clear();
 
         // frame / sync object cleanup
         if (m_timelineSemaphore != NULL) {
@@ -1697,6 +1757,12 @@ public final class Application {
         return gpuBuff;
     }
 
+    private int addBuffer(GPUBuffer buffer) {
+        m_buffers.add(buffer);
+        val bufferId = m_buffers.size();
+        return bufferId;
+    }
+
     private void mapCopyBufferData(GPUBuffer buffer, long bufferOffset, MemorySegment data) {
         assert m_vmaAllocator != NULL;
 
@@ -2173,6 +2239,18 @@ public final class Application {
         return VK_FALSE;
     }
 
+    private void loadGltf(String fileName) {
+        val filePath = Paths.get(fileName);
+        if (!Files.isRegularFile(filePath)) {
+            IO.println("File doesn't exist: %s".formatted(fileName));
+            return;
+        }
+
+        IO.println(" ** Loading GLTF: %s".formatted(fileName));
+        // load and parse GLTF
+
+    }
+
     @NoArgsConstructor
     static final class GPUImage {
         /*(VkImage)*/ long image = NULL;
@@ -2203,5 +2281,9 @@ public final class Application {
                  int height,
                  int channels,
                  MemorySegment data) {
+    }
+
+    record Texture(int imageId,
+                   int samplerId) {
     }
 }
