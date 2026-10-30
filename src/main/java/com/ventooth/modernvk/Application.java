@@ -1,6 +1,8 @@
 package com.ventooth.modernvk;
 
 import com.ventooth.modernvk.Structs.RenderItem;
+import de.javagl.jgltf.impl.v2.GlTF;
+import de.javagl.jgltf.model.io.v2.GltfReaderV2;
 import lombok.Cleanup;
 import lombok.NoArgsConstructor;
 import lombok.val;
@@ -458,7 +460,7 @@ public final class Application {
 
         m_textures.add(new Texture(m_whitePixelImageId, whiteSamplerId));
 
-        loadGltf("D:/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf");
+        loadGltf("./glTF-Sample-Assets/Models/Cube/glTF/Cube.gltf");
 
         return true;
     }
@@ -2249,6 +2251,21 @@ public final class Application {
         IO.println(" ** Loading GLTF: %s".formatted(fileName));
         // load and parse GLTF
 
+        final GlTF model;
+        try (val is = Files.newInputStream(filePath)) {
+            val reader = new GltfReaderV2();
+            model = reader.read(is);
+        } catch (Exception e) {
+            IO.println("Error parsing glTF file");
+            //noinspection CallToPrintStackTrace
+            e.printStackTrace();
+            return;
+        }
+
+        val gltfImages = model.getImages();
+//        gltfImages.getFirst().
+
+        // https://github.com/nickenchev/modern-vulkan/blob/lesson_02/src/application.cpp#L358C15-L358C38
     }
 
     @NoArgsConstructor
