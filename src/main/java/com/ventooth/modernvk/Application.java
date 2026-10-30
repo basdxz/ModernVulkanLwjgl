@@ -10,6 +10,7 @@ import org.lwjgl.sdl.SDL_Event;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.system.NativeType;
+import org.lwjgl.system.ffm.FFM;
 import org.lwjgl.system.ffm.StructArray;
 import org.lwjgl.util.vma.VmaAllocationCreateInfo;
 import org.lwjgl.util.vma.VmaAllocatorCreateInfo;
@@ -18,6 +19,7 @@ import org.lwjgl.vulkan.VK;
 import org.lwjgl.vulkan.VkApplicationInfo;
 import org.lwjgl.vulkan.VkBufferCreateInfo;
 import org.lwjgl.vulkan.VkBufferDeviceAddressInfo;
+import org.lwjgl.vulkan.VkBufferImageCopy;
 import org.lwjgl.vulkan.VkCommandBuffer;
 import org.lwjgl.vulkan.VkCommandBufferAllocateInfo;
 import org.lwjgl.vulkan.VkCommandBufferBeginInfo;
@@ -80,12 +82,16 @@ import org.lwjgl.vulkan.VkSurfaceFormatKHR;
 import org.lwjgl.vulkan.VkSwapchainCreateInfoKHR;
 import org.lwjgl.vulkan.VkViewport;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.nio.IntBuffer;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.stream.IntStream;
 
+import static com.ventooth.modernvk.Structs.Vertex;
 import static com.ventooth.modernvk.Utils.readTextFile;
 import static org.lwjgl.sdl.SDLEvents.SDL_EVENT_QUIT;
 import static org.lwjgl.sdl.SDLEvents.SDL_EVENT_WINDOW_RESIZED;
@@ -126,10 +132,12 @@ import static org.lwjgl.util.vma.Vma.VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 import static org.lwjgl.util.vma.Vma.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 import static org.lwjgl.util.vma.Vma.VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 import static org.lwjgl.util.vma.Vma.VMA_MEMORY_USAGE_AUTO;
+import static org.lwjgl.util.vma.Vma.VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
 import static org.lwjgl.util.vma.Vma.vmaCreateAllocator;
 import static org.lwjgl.util.vma.Vma.vmaCreateBuffer;
 import static org.lwjgl.util.vma.Vma.vmaCreateImage;
 import static org.lwjgl.util.vma.Vma.vmaDestroyAllocator;
+import static org.lwjgl.util.vma.Vma.vmaDestroyBuffer;
 import static org.lwjgl.util.vma.Vma.vmaDestroyImage;
 import static org.lwjgl.util.vma.Vma.vmaFreeMemory;
 import static org.lwjgl.util.vma.Vma.vmaMapMemory;
@@ -163,6 +171,7 @@ import static org.lwjgl.vulkan.VK10.VK_ATTACHMENT_STORE_OP_DONT_CARE;
 import static org.lwjgl.vulkan.VK10.VK_ATTACHMENT_STORE_OP_STORE;
 import static org.lwjgl.vulkan.VK10.VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
 import static org.lwjgl.vulkan.VK10.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+import static org.lwjgl.vulkan.VK10.VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_A_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_B_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_G_BIT;
@@ -178,15 +187,20 @@ import static org.lwjgl.vulkan.VK10.VK_DYNAMIC_STATE_VIEWPORT;
 import static org.lwjgl.vulkan.VK10.VK_FALSE;
 import static org.lwjgl.vulkan.VK10.VK_FORMAT_B8G8R8A8_SRGB;
 import static org.lwjgl.vulkan.VK10.VK_FORMAT_D32_SFLOAT;
+import static org.lwjgl.vulkan.VK10.VK_FORMAT_R8G8B8A8_SRGB;
 import static org.lwjgl.vulkan.VK10.VK_FRONT_FACE_COUNTER_CLOCKWISE;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_ASPECT_COLOR_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_ASPECT_DEPTH_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+import static org.lwjgl.vulkan.VK10.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+import static org.lwjgl.vulkan.VK10.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_LAYOUT_UNDEFINED;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_TILING_OPTIMAL;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_TYPE_2D;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_SAMPLED_BIT;
+import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_VIEW_TYPE_2D;
 import static org.lwjgl.vulkan.VK10.VK_NULL_HANDLE;
 import static org.lwjgl.vulkan.VK10.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
@@ -204,6 +218,7 @@ import static org.lwjgl.vulkan.VK10.vkAllocateCommandBuffers;
 import static org.lwjgl.vulkan.VK10.vkAllocateDescriptorSets;
 import static org.lwjgl.vulkan.VK10.vkBeginCommandBuffer;
 import static org.lwjgl.vulkan.VK10.vkCmdBindPipeline;
+import static org.lwjgl.vulkan.VK10.vkCmdCopyBufferToImage;
 import static org.lwjgl.vulkan.VK10.vkCmdDraw;
 import static org.lwjgl.vulkan.VK10.vkCmdSetScissor;
 import static org.lwjgl.vulkan.VK10.vkCmdSetViewport;
@@ -222,6 +237,7 @@ import static org.lwjgl.vulkan.VK10.vkDestroyCommandPool;
 import static org.lwjgl.vulkan.VK10.vkDestroyDescriptorPool;
 import static org.lwjgl.vulkan.VK10.vkDestroyDescriptorSetLayout;
 import static org.lwjgl.vulkan.VK10.vkDestroyDevice;
+import static org.lwjgl.vulkan.VK10.vkDestroyImage;
 import static org.lwjgl.vulkan.VK10.vkDestroyImageView;
 import static org.lwjgl.vulkan.VK10.vkDestroyInstance;
 import static org.lwjgl.vulkan.VK10.vkDestroyPipeline;
@@ -249,10 +265,15 @@ import static org.lwjgl.vulkan.VK12.VK_SEMAPHORE_TYPE_TIMELINE;
 import static org.lwjgl.vulkan.VK12.vkGetBufferDeviceAddress;
 import static org.lwjgl.vulkan.VK12.vkWaitSemaphores;
 import static org.lwjgl.vulkan.VK13.VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+import static org.lwjgl.vulkan.VK13.VK_ACCESS_2_NONE;
+import static org.lwjgl.vulkan.VK13.VK_ACCESS_2_SHADER_READ_BIT;
+import static org.lwjgl.vulkan.VK13.VK_ACCESS_2_TRANSFER_WRITE_BIT;
 import static org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 import static org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
 import static org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+import static org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_COPY_BIT;
 import static org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
+import static org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
 import static org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
 import static org.lwjgl.vulkan.VK13.VK_PIPELINE_STAGE_2_NONE;
 import static org.lwjgl.vulkan.VK13.vkCmdBeginRendering;
@@ -315,19 +336,21 @@ public final class Application {
     private FrameResources @Nullable [] m_frameResources = null;
 
     // cpu resources
+    private @Nullable Arena m_arena;
     //	std::vector<Mesh> m_meshes;
-    //	std::vector<Vertex> m_vertices;
-    //	std::vector<uint32_t> m_indices;
-    //	size_t m_vertOffset = 0;
-    //	size_t m_idxOffset = 0;
+    private @Nullable StructArray<Vertex> m_vertices;
+    private @Nullable MemorySegment m_indices;
+    private @Nullable IntBuffer m_indicesInts;
+    private int m_vertOffset = 0;
+    private int m_idxOffset = 0;
 
-    // gpu resources
-    //	uint32_t m_whitePixelImageId = 0;
+    // Gpu resources
+    private int m_whitePixelImageId = 0;
     //	uint32_t m_vertexBufferId = 0;
     //	uint32_t m_indexBufferId = 0;
     //	uint32_t m_matBufferId = 0;
-    //	std::vector<GPUImage> m_images;
-    //	std::vector<VkSampler> m_samplers;
+    private final List<GPUImage> m_images = new ArrayList<>();
+    //    	std::vector<VkSampler> m_samplers;
     //	std::vector<Texture> m_textures;
     //	std::vector<GPUBuffer> m_buffers;
     //	std::vector<Material> m_materials;
@@ -363,6 +386,45 @@ public final class Application {
         return initializeVulkan();
     }
 
+    public boolean loadData() {
+        // Preallocate mem for vertex and index data
+        val vertexBufferBytes = 64 * 1024 * 1024; // 64MB vertex budget
+        val indexBufferBytes = 32 * 1024 * 1024; // 32MB index budget
+        val totalVerts = vertexBufferBytes /
+                         Vertex.$.layout()
+                                 .byteSize();
+        val totalIndices = indexBufferBytes /
+                           FFM.uint32_t.layout()
+                                       .byteSize();
+
+        m_arena = Arena.ofShared();
+        m_vertices = Vertex.$.allocate(m_arena, totalVerts);
+        m_indices = FFM.uint32_t.allocateSegment(m_arena, totalIndices);
+        m_indicesInts = m_indices.asByteBuffer()
+                                 .asIntBuffer();
+
+        // Fallback 1x1 white texture base color texture (0-index in tex array)
+        val whitePixelData = FFM.uint32_t.allocateSegment(m_arena, 1);
+        whitePixelData.asByteBuffer()
+                      .putInt(0xFFFFFFFF); // RGBA
+
+        val whitePixel = new Image(1, 1, 4, whitePixelData);
+
+        val whiteImgCmdBuff = startTransientCommandBuffer();
+        final int whiteImageId;
+        final GPUBuffer whiteStagingBuffer;
+        {
+            val pair = createImage(whiteImgCmdBuff, whitePixel);
+            whiteImageId = pair.fst();
+            whiteStagingBuffer = pair.snd();
+        }
+        m_whitePixelImageId = whiteImageId;
+        submitTransientCommandBuffer(whiteImgCmdBuff); // submit and wait
+        vmaDestroyBuffer(m_vmaAllocator, whiteStagingBuffer.vkBuffer, whiteStagingBuffer.allocation);
+
+        return true;
+    }
+
     public void run() {
         var running = true;
         @Cleanup val stack = MemoryStack.stackPush();
@@ -390,6 +452,30 @@ public final class Application {
         if (m_device != null) {
             vkDeviceWaitIdle(m_device);
         }
+
+        // delete textures and samplers
+        for (val img : m_images){
+            if (img.imageView != NULL) {
+                assert m_device != null;
+                vkDestroyImageView(m_device, img.imageView, null);
+                img.imageView = NULL;
+            }
+            if (img.image != NULL) {
+                assert m_device != null;
+                vkDestroyImage(m_device, img.image, null);
+                img.image = NULL;
+            }
+            if (img.allocation != NULL) {
+                assert m_vmaAllocator != NULL;
+                vmaFreeMemory(m_vmaAllocator, img.allocation);
+                img.allocation = NULL;
+            }
+        }
+        m_whitePixelImageId = 0;
+        m_images.clear();
+//        for (VkSampler sampler : m_samplers) {
+//            vkDestroySampler(m_device, sampler, nullptr);
+//        }
 
         // clean up descriptor layouts and pool
         if (m_globalDSLayout != NULL) {
@@ -523,6 +609,16 @@ public final class Application {
             m_debugCallback = null;
         }
         VK.destroy();
+
+        m_idxOffset = 0;
+        m_vertOffset = 0;
+        m_indicesInts = null;
+        m_vertices = null;
+        m_indices = null;
+        if (m_arena != null) {
+            m_arena.close();
+            m_arena = null;
+        }
 
         // Cleanup SDL
         if (m_window != NULL) {
@@ -1622,7 +1718,7 @@ public final class Application {
         }
     }
 
-    VkCommandBuffer startTransientCommandBuffer() {
+    private VkCommandBuffer startTransientCommandBuffer() {
         assert m_device != null;
         assert m_commandPool != NULL;
 
@@ -1661,7 +1757,7 @@ public final class Application {
         return commandBuffer;
     }
 
-    void submitTransientCommandBuffer(VkCommandBuffer commandBuffer) {
+    private void submitTransientCommandBuffer(VkCommandBuffer commandBuffer) {
         assert m_device != null;
         assert m_gfxQueue != null;
         assert m_commandPool != NULL;
@@ -1674,9 +1770,139 @@ public final class Application {
                                      .sType$Default()
                                      .pCommandBuffers(stack.pointers(commandBuffer.address()));
 
-        vkQueueSubmit(m_gfxQueue, submitInfo, 1);
+        vkQueueSubmit(m_gfxQueue, submitInfo, NULL);
         vkQueueWaitIdle(m_gfxQueue);
         vkFreeCommandBuffers(m_device, m_commandPool, commandBuffer);
+    }
+
+    private Pair<Integer, GPUBuffer> createImage(VkCommandBuffer commandBuffer, Image cpuImg) {
+        assert m_device != null;
+        assert m_vmaAllocator != NULL;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        val width = cpuImg.width;
+        val height = cpuImg.height;
+        val imageFormat = VK_FORMAT_R8G8B8A8_SRGB;
+
+        // Create vk image and allocation
+        val gpuImg = new GPUImage();
+        {
+            val imageInfo = VkImageCreateInfo.calloc(stack)
+                                             .sType$Default()
+                                             .imageType(VK_IMAGE_TYPE_2D)
+                                             .format(imageFormat)
+                                             .extent(ext -> ext.set(width, height, 1))
+                                             .mipLevels(1)
+                                             .arrayLayers(1)
+                                             .samples(VK_SAMPLE_COUNT_1_BIT)
+                                             .tiling(VK_IMAGE_TILING_OPTIMAL)
+                                             .usage(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)
+                                             .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED);
+            val allocInfo = VmaAllocationCreateInfo.calloc(stack)
+                                                   .usage(VMA_MEMORY_USAGE_AUTO);
+
+            val imagePtr = stack.callocLong(1);
+            val allocationPtr = stack.callocPointer(1);
+            if (vmaCreateImage(m_vmaAllocator, imageInfo, allocInfo, imagePtr, allocationPtr, null) != VK_SUCCESS) {
+                showError("Error creating image");
+                throw new IllegalStateException();// return {0, GPUBuffer{}};
+            }
+            gpuImg.image = imagePtr.get(0);
+            gpuImg.allocation = allocationPtr.get(0);
+        }
+
+        // Create image view
+        {
+            val imgViewInfo = VkImageViewCreateInfo.calloc(stack)
+                                                   .sType$Default()
+                                                   .image(gpuImg.image)
+                                                   .viewType(VK_IMAGE_VIEW_TYPE_2D)
+                                                   .format(imageFormat)
+                                                   .subresourceRange(sr -> sr.aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)
+                                                                             .levelCount(1)
+                                                                             .layerCount(1));
+
+            val ptr = stack.callocLong(1);
+            if (vkCreateImageView(m_device, imgViewInfo, null, ptr) != VK_SUCCESS) {
+                showError("Error creating image view");
+                throw new IllegalStateException();// return { 0, GPUBuffer{} };
+            }
+            gpuImg.imageView = ptr.get(0);
+        }
+
+        // Transition the image to transfer-DST
+        {
+            val transferBarrier = VkImageMemoryBarrier2.calloc(1, stack)
+                                                       .sType$Default()
+                                                       .srcStageMask(VK_PIPELINE_STAGE_2_NONE)
+                                                       .srcAccessMask(VK_ACCESS_2_NONE)
+                                                       .dstStageMask(VK_PIPELINE_STAGE_2_COPY_BIT)
+                                                       .dstAccessMask(VK_ACCESS_2_TRANSFER_WRITE_BIT)
+                                                       .oldLayout(VK_IMAGE_LAYOUT_UNDEFINED)
+                                                       .newLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+                                                       .image(gpuImg.image)
+                                                       .subresourceRange((sr) -> sr.aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)
+                                                                                   .baseMipLevel(0)
+                                                                                   .levelCount(1)
+                                                                                   .baseArrayLayer(0)
+                                                                                   .layerCount(1));
+            val transferDepInfo = VkDependencyInfo.calloc(stack)
+                                                  .sType$Default()
+                                                  .pImageMemoryBarriers(transferBarrier);
+
+            vkCmdPipelineBarrier2(commandBuffer, transferDepInfo);
+        }
+
+        // Create staging buffer and issue record copy operation
+        final GPUBuffer stageBuff;
+        {
+            stageBuff = createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                     cpuImg.data.byteSize(),
+                                     true,
+                                     VMA_MEMORY_USAGE_AUTO_PREFER_HOST);
+            mapCopyBufferData(stageBuff, 0, cpuImg.data);
+
+            val buffImgCopy = VkBufferImageCopy.calloc(1, stack)
+                                               .imageSubresource(sr -> sr.aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)
+                                                                         .mipLevel(0)
+                                                                         .baseArrayLayer(0)
+                                                                         .layerCount(1))
+                                               .imageExtent(ext -> ext.set(width, height, 1));
+            vkCmdCopyBufferToImage(commandBuffer,
+                                   stageBuff.vkBuffer,
+                                   gpuImg.image,
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   buffImgCopy);
+        }
+
+        // transition image for shader read/sampling
+        {
+            val shaderReadBarrier = VkImageMemoryBarrier2.calloc(1, stack)
+                                                         .sType$Default()
+                                                         .srcStageMask(VK_PIPELINE_STAGE_2_COPY_BIT)
+                                                         .srcAccessMask(VK_ACCESS_2_TRANSFER_WRITE_BIT)
+                                                         .dstStageMask(VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
+                                                         .dstAccessMask(VK_ACCESS_2_SHADER_READ_BIT)
+                                                         .oldLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+                                                         .newLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                                                         .image(gpuImg.image)
+                                                         .subresourceRange((sr) -> sr.aspectMask(
+                                                                                             VK_IMAGE_ASPECT_COLOR_BIT)
+                                                                                     .baseMipLevel(0)
+                                                                                     .levelCount(1)
+                                                                                     .baseArrayLayer(0)
+                                                                                     .layerCount(1));
+            val transferDepInfo = VkDependencyInfo.calloc(stack)
+                                                  .sType$Default()
+                                                  .pImageMemoryBarriers(shaderReadBarrier);
+
+            vkCmdPipelineBarrier2(commandBuffer, transferDepInfo);
+        }
+
+        m_images.add(gpuImg);
+        val imageId = m_images.size();
+        return new Pair<>(imageId, stageBuff);
     }
 
     private void render() {
@@ -1948,6 +2174,13 @@ public final class Application {
     }
 
     @NoArgsConstructor
+    static final class GPUImage {
+        /*(VkImage)*/ long image = NULL;
+        /*(VkImageView)*/ long imageView = NULL;
+        /*(VmaAllocation)*/ long allocation = NULL;
+    }
+
+    @NoArgsConstructor
     static final class GPUBuffer {
         /*(VkBuffer)*/ long vkBuffer = NULL;
         /*(uint64_t)*/ long deviceAddress = NULL;
@@ -1964,5 +2197,11 @@ public final class Application {
         @Nullable GPUBuffer renderItemBuffer = null;
         VkDrawIndexedIndirectCommand.@Nullable Buffer indirectDrawPtr = null;
         @Nullable StructArray<RenderItem> renderItemPtr = null;
+    }
+
+    record Image(int width,
+                 int height,
+                 int channels,
+                 MemorySegment data) {
     }
 }

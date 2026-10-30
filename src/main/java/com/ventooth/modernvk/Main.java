@@ -20,6 +20,7 @@ public final class Main {
 
         val app = new Application();
         if (app.initialize()) {
+            app.loadData();
             app.run();
         }
         app.shutdown();

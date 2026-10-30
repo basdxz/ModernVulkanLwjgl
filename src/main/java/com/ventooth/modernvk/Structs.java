@@ -14,9 +14,31 @@ public final class Structs {
                      .withChecks(true)
                      .withNullableAnnotation(Nullable.class)
                      .build();
+        FFM.ffmConfig(vec2.class, cfg);
         FFM.ffmConfig(vec3.class, cfg);
         FFM.ffmConfig(mat4.class, cfg);
         FFM.ffmConfig(RenderItem.class, cfg);
+        FFM.ffmConfig(Vertex.class, cfg);
+    }
+
+    @FFMDefinition("""
+            struct vec2 {
+                float x;
+                float y;
+            }""")
+    public interface vec2 {
+        // @formatter:off
+        StructBinder<vec2> $ = FFM.ffmStruct(vec2.class)
+                                  .m("x", FFM.float32)
+                                  .m("y", FFM.float32)
+                                  .build();
+
+        vec2    x(float x);
+        float   x();
+
+        vec2    y(float y);
+        float   y();
+        // @formatter:on
     }
 
     @FFMDefinition("""
@@ -108,10 +130,10 @@ public final class Structs {
     public interface RenderItem {
         // @formatter:off
         StructBinder<RenderItem> $ = FFM.ffmStruct(RenderItem.class)
-                                        .m("wvp", mat4.$)
-                                        .m("worldMatrix", mat4.$)
-                                        .m("materialIndex", FFM.uint32_t)
-                                        .build();
+            .m("wvp", mat4.$)
+            .m("worldMatrix", mat4.$)
+            .m("materialIndex", FFM.uint32_t)
+            .build();
 
         RenderItem  wvp(mat4 wvp);
         mat4        wvp();
@@ -121,6 +143,34 @@ public final class Structs {
 
         RenderItem  materialIndex(int materialIndex);
         int         materialIndex();
+        // @formatter:on
+    }
+
+    @FFMDefinition("""
+            struct Vertex {
+                float x;
+                float y;
+            }""")
+    public interface Vertex {
+        // @formatter:off
+        StructBinder<Vertex> $ = FFM.ffmStruct(Vertex.class)
+            .m("position", vec3.$)
+            .m("color", vec3.$)
+            .m("normal", vec3.$)
+            .m("uv", vec2.$)
+            .build();
+
+        Vertex  position(vec3 position);
+        vec3   position();
+
+        Vertex  color(vec3 color);
+        vec3    color();
+
+        Vertex  normal(vec3 normal);
+        vec3    normal();
+
+        Vertex  uv(vec2 uv);
+        vec2    uv();
         // @formatter:on
     }
 }
