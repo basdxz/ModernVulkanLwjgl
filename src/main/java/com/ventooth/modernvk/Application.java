@@ -2300,7 +2300,10 @@ public final class Application {
                 val width = widthPtr.get(0);
                 val height = heightPtr.get(0);
                 val channels = channelsPtr.get(0);
-                val data = m_arena.allocate(stbiData.capacity());
+
+                val data = m_arena.allocate(stbiData.remaining());
+                data.copyFrom(MemorySegment.ofBuffer(stbiData));
+
                 images[i] = new Image(width, height, channels, data);
             } catch (Exception e) {
                 if (imageName == null) {
