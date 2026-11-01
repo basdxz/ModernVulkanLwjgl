@@ -2265,13 +2265,19 @@ public final class Application {
             return;
         }
 
-        val imageDir = filePath.getParent();
-        val images = loadImages(model, imageDir);
+        final int[] imageIds;
+        try (val arena = Arena.ofConfined()) { // frees image memory after uploading to VRAM
+            val imageDir = filePath.getParent();
+            val images = loadImages(arena, model, imageDir); // load images into RAM
+            imageIds = uploadImages(images); // upload images to VRAM
+        }
+
+
 
         // https://github.com/nickenchev/modern-vulkan/blob/lesson_02/src/application.cpp#L358C15-L358C38
     }
 
-    private @Nullable Image[] loadImages(GlTF model, Path imageDir) {
+    private @Nullable Image[] loadImages(Arena arena, GlTF model, Path imageDir) {
         assert m_arena != null;
 
         val gltfImages = model.getImages();
@@ -2301,7 +2307,7 @@ public final class Application {
                 val height = heightPtr.get(0);
                 val channels = channelsPtr.get(0);
 
-                val data = m_arena.allocate(stbiData.remaining());
+                val data = arena.allocate(stbiData.remaining());
                 data.copyFrom(MemorySegment.ofBuffer(stbiData));
 
                 images[i] = new Image(width, height, channels, data);
@@ -2317,6 +2323,40 @@ public final class Application {
             }
         }
         return images;
+    }
+
+    private int[] uploadImages(@Nullable Image[] images) {
+        assert m_vmaAllocator != NULL;
+
+        val commandBuffer = startTransientCommandBuffer();
+
+        val numImages = images.length;
+        final @Nullable GPUBuffer[] stagingBuffers = new GPUBuffer[images.length];
+
+        // Upload images to GPU textures
+        val imageIds = new int[numImages];
+        for (var i = 0; i < numImages; i++) {
+            val image = images[i];
+            if (image != null) {
+                val pair = createImage(commandBuffer, image);
+                val imageId = pair.fst();
+                val stagingTexBuffer = pair.snd();
+                imageIds[i] = imageId;
+                stagingBuffers[i] = stagingTexBuffer;
+            } else {
+                imageIds[i] = m_whitePixelImageId; // fallback to white pixel texture
+            }
+        }
+
+        submitTransientCommandBuffer(commandBuffer); // submit and wait
+
+        // clean up the staging buffers
+        for (val stageBuff : stagingBuffers) {
+            if (stageBuff != null) {
+                vmaDestroyBuffer(m_vmaAllocator, stageBuff.vkBuffer, stageBuff.allocation);
+            }
+        }
+        return imageIds;
     }
 
     @NoArgsConstructor
