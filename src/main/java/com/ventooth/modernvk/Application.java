@@ -2273,6 +2273,7 @@ public final class Application {
         }
 
         val samplerIds = loadSamplers(model); // samplers required for shaders
+        val textureIds = loadTextures(model, imageIds, samplerIds); // image/sampler combinations
 
         // https://github.com/nickenchev/modern-vulkan/blob/lesson_02/src/application.cpp#L358C15-L358C38
     }
@@ -2359,7 +2360,6 @@ public final class Application {
         return imageIds;
     }
 
-    @SuppressWarnings("DuplicateBranchesInSwitch")
     private int[] loadSamplers(GlTF model) {
         assert m_device != null;
 
@@ -2401,6 +2401,24 @@ public final class Application {
             }
         }
         return samplerIds;
+    }
+
+    private int[] loadTextures(GlTF model, int[] imageIds, int[] samplerIds) {
+        val gltfTextures = model.getTextures();
+        val numTextures = gltfTextures.size();
+        assert m_textures.size() + numTextures <= MaxTextures : "Exceeding max texture count";
+
+        val textureIds = new int[numTextures];
+        for (var i = 0; i < numTextures; i++) {
+            val gltfTexture = gltfTextures.get(i);
+            val imageId = imageIds[gltfTexture.getSource()];
+            val samplerId = samplerIds[gltfTexture.getSampler()];
+
+            m_textures.add(new Texture(imageId, samplerId));
+
+            textureIds[i] = m_textures.size();
+        }
+        return textureIds;
     }
 
     @NoArgsConstructor
