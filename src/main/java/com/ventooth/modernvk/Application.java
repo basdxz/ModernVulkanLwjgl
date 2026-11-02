@@ -1,5 +1,6 @@
 package com.ventooth.modernvk;
 
+import com.ventooth.modernvk.Structs.Material;
 import com.ventooth.modernvk.Structs.RenderItem;
 import de.javagl.jgltf.impl.v2.GlTF;
 import de.javagl.jgltf.model.io.v2.GltfReaderV2;
@@ -301,6 +302,7 @@ public final class Application {
     private static final int swapchainFormat = VK_FORMAT_B8G8R8A8_SRGB;
     private static final int depthFormat = VK_FORMAT_D32_SFLOAT;
     private static final int MaxTextures = 1024;
+    private static final int MaxMaterials = 1024;
     private static final int MaxFramesInFlight = 2;
     private static final String shaderEntryPoint = "main";
 
@@ -366,7 +368,8 @@ public final class Application {
     private final List</*(VkSampler)*/Long> m_samplers = new ArrayList<>();
     private final List<Texture> m_textures = new ArrayList<>();
     private final List<GPUBuffer> m_buffers = new ArrayList<>();
-    //	std::vector<Material> m_materials;
+    private @Nullable StructArray<Material> m_materials;
+    private int m_matOffset = 0;
 
     // descriptors
     private /*(VkDescriptorSetLayout)*/ long m_globalDSLayout = NULL;
@@ -420,6 +423,8 @@ public final class Application {
         m_indicesInts = m_indices.asByteBuffer()
                                  .asIntBuffer();
 
+        m_materials = Material.$.allocate(m_arena, MaxMaterials);
+
         // Fallback 1x1 white texture base color texture (0-index in tex array)
         val whitePixelData = FFM.uint32_t.allocateSegment(m_arena, 1);
         whitePixelData.asByteBuffer()
@@ -465,10 +470,10 @@ public final class Application {
         m_textures.add(new Texture(m_whitePixelImageId, whiteSamplerId));
 
         loadGltf("./glTF-Sample-Assets/Models/Cube/glTF/Cube.gltf");
+//        loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
 
         return true;
     }
-
 
     public void run() {
         var running = true;
@@ -675,8 +680,10 @@ public final class Application {
         }
         VK.destroy();
 
+        m_matOffset = 0;
         m_idxOffset = 0;
         m_vertOffset = 0;
+        m_materials = null;
         m_indicesInts = null;
         m_vertices = null;
         m_indices = null;
@@ -2274,6 +2281,7 @@ public final class Application {
 
         val samplerIds = loadSamplers(model); // samplers required for shaders
         val textureIds = loadTextures(model, imageIds, samplerIds); // image/sampler combinations
+        val materialIds = loadMaterials(model, textureIds); // materials reference textureIds
 
         // https://github.com/nickenchev/modern-vulkan/blob/lesson_02/src/application.cpp#L358C15-L358C38
     }
@@ -2419,6 +2427,43 @@ public final class Application {
             textureIds[i] = m_textures.size();
         }
         return textureIds;
+    }
+
+    private int[] loadMaterials(GlTF model, int[] textureIds) {
+        assert m_materials != null;
+
+        val gltfMaterials = model.getMaterials();
+        val numMaterials = gltfMaterials.size();
+        assert numMaterials + m_matOffset < MaxMaterials : "Exceeding max material count";
+
+        val materialIds = new int[numMaterials];
+        for (var i = 0; i < numMaterials; i++) {
+            val gltfMaterial = gltfMaterials.get(i);
+            val pbr = gltfMaterial.getPbrMetallicRoughness();
+
+            final int textureIndex;
+            {
+                val textureInfo = pbr.getBaseColorTexture();
+                if (textureInfo != null) {
+                    textureIndex = textureIds[textureInfo.getIndex()] - 1;
+                } else {
+                    textureIndex = m_whitePixelImageId;
+                }
+            }
+            val color = Objects.requireNonNullElse(pbr.getBaseColorFactor(), pbr.defaultBaseColorFactor());
+
+            val materialId = m_matOffset++;
+            m_materials.apply(materialId, mat -> {
+                mat.baseColor()
+                   .x((float) color[0])
+                   .y((float) color[1])
+                   .z((float) color[2])
+                   .w((float) color[3]);
+                mat.textureIndex(textureIndex);
+            });
+            textureIds[i] = materialId;
+        }
+        return materialIds;
     }
 
     @NoArgsConstructor

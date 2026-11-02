@@ -16,9 +16,11 @@ public final class Structs {
                      .build();
         FFM.ffmConfig(vec2.class, cfg);
         FFM.ffmConfig(vec3.class, cfg);
+        FFM.ffmConfig(vec4.class, cfg);
         FFM.ffmConfig(mat4.class, cfg);
         FFM.ffmConfig(RenderItem.class, cfg);
         FFM.ffmConfig(Vertex.class, cfg);
+        FFM.ffmConfig(Material.class, cfg);
     }
 
     @FFMDefinition("""
@@ -63,6 +65,36 @@ public final class Structs {
 
         vec3    z(float z);
         float   z();
+        // @formatter:on
+    }
+
+    @FFMDefinition("""
+            struct vec4 {
+                float x;
+                float y;
+                float z;
+                float w;
+            }""")
+    public interface vec4 {
+        // @formatter:off
+        StructBinder<vec4> $ = FFM.ffmStruct(vec4.class)
+            .m("x", FFM.float32)
+            .m("y", FFM.float32)
+            .m("z", FFM.float32)
+            .m("w", FFM.float32)
+            .build();
+
+        vec4    x(float x);
+        float   x();
+
+        vec4    y(float y);
+        float   y();
+
+        vec4    z(float z);
+        float   z();
+
+        vec4    w(float w);
+        float   w();
         // @formatter:on
     }
 
@@ -171,6 +203,26 @@ public final class Structs {
 
         Vertex  uv(vec2 uv);
         vec2    uv();
+        // @formatter:on
+    }
+
+    @FFMDefinition("""
+            struct Material {
+            	vec4 baseColor;
+            	uint32_t textureIndex;
+            }""")
+    public interface Material {
+        // @formatter:off
+        StructBinder<Material> $ = FFM.ffmStruct(Material.class)
+            .m("baseColor", vec4.$)
+            .m("textureIndex", FFM.uint32_t)
+            .build();
+
+        Material    baseColor(vec4 baseColor);
+        vec4        baseColor();
+
+        Material    textureIndex(int textureIndex);
+        int         textureIndex();
         // @formatter:on
     }
 }
