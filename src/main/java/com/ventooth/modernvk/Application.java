@@ -213,7 +213,7 @@ import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_SAMPLED_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_VIEW_TYPE_2D;
 import static org.lwjgl.vulkan.VK10.VK_NULL_HANDLE;
-import static org.lwjgl.vulkan.VK10.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+import static org.lwjgl.vulkan.VK10.VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
 import static org.lwjgl.vulkan.VK10.VK_PIPELINE_BIND_POINT_GRAPHICS;
 import static org.lwjgl.vulkan.VK10.VK_POLYGON_MODE_FILL;
 import static org.lwjgl.vulkan.VK10.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -2272,7 +2272,7 @@ public final class Application {
             imageIds = uploadImages(images); // upload images to VRAM
         }
 
-
+        val samplerIds = loadSamplers(model); // samplers required for shaders
 
         // https://github.com/nickenchev/modern-vulkan/blob/lesson_02/src/application.cpp#L358C15-L358C38
     }
@@ -2357,6 +2357,50 @@ public final class Application {
             }
         }
         return imageIds;
+    }
+
+    @SuppressWarnings("DuplicateBranchesInSwitch")
+    private int[] loadSamplers(GlTF model) {
+        assert m_device != null;
+
+        @Cleanup val stack = MemoryStack.stackPush();
+
+        val gltfSamplers = model.getSamplers();
+        val numSamplers = gltfSamplers.size();
+        val samplerIds = new int[numSamplers];
+
+        val samplerInfo = VkSamplerCreateInfo.calloc(stack)
+                                             .sType$Default()
+                                             .compareEnable(false);
+        val ptr = stack.callocLong(1);
+        for (var i = 0; i < numSamplers; i++) {
+            val gltfSampler = gltfSamplers.get(i);
+
+            val magFilter = GltfModel.filterMap.getOrDefault(gltfSampler.getMagFilter(), GltfModel.defaultFilter);
+            val minFilter = GltfModel.filterMap.getOrDefault(gltfSampler.getMinFilter(), GltfModel.defaultFilter);
+            val wrapS = GltfModel.wrapMap.getOrDefault(gltfSampler.getWrapS(), GltfModel.defaultWrap);
+            val wrapT = GltfModel.wrapMap.getOrDefault(gltfSampler.getWrapS(), GltfModel.defaultWrap);
+
+            samplerInfo.magFilter(magFilter.fst())
+                       .minFilter(minFilter.fst())
+                       .mipmapMode(minFilter.snd())
+                       .addressModeU(wrapS)
+                       .addressModeV(wrapT)
+                       .addressModeW(GltfModel.defaultWrap)
+                       .minLod(0F)
+                       .maxLod(minFilter.thr());
+
+            if (vkCreateSampler(m_device, samplerInfo, null, ptr) != VK_SUCCESS) {
+                showError("Unable to create texture sampler");
+                // fallback texture's sampler
+                val fallbackTexture = m_textures.getFirst();
+                samplerIds[i] = fallbackTexture.samplerId;
+            } else {
+                m_samplers.add(ptr.get(0));
+                samplerIds[i] = m_samplers.size();
+            }
+        }
+        return samplerIds;
     }
 
     @NoArgsConstructor
