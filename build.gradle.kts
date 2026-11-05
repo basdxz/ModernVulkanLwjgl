@@ -64,6 +64,7 @@ dependencies {
     runtimeOnly("org.lwjgl:lwjgl-stb::$lwjglNatives")
 
     implementation("de.javagl:jgltf-model:3.0.1")
+    implementation("org.joml:joml:1.10.9")
 }
 
 application {

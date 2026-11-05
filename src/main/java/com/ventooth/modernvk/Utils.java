@@ -4,6 +4,8 @@ import lombok.val;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.function.IntFunction;
+import java.util.function.Supplier;
 
 public final class Utils {
     private Utils() {
@@ -23,5 +25,17 @@ public final class Utils {
         } catch (IOException _) {
             return "";
         }
+    }
+
+    public static <T> T[] initArray(int size, Supplier<? extends T> constructor, IntFunction<T[]> generator) {
+        return initArray(size, _ -> constructor.get(), generator);
+    }
+
+    public static <T> T[] initArray(int size, IntFunction<? extends T> constructor, IntFunction<T[]> generator) {
+        val ret = generator.apply(size);
+        for (var i = 0; i < size; i++) {
+            ret[i] = constructor.apply(i);
+        }
+        return ret;
     }
 }

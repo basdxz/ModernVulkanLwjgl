@@ -4,10 +4,14 @@ import com.ventooth.modernvk.Structs.Material;
 import com.ventooth.modernvk.Structs.RenderItem;
 import com.ventooth.modernvk.Structs.vec3;
 import de.javagl.jgltf.impl.v2.GlTF;
+import de.javagl.jgltf.impl.v2.Scene;
 import de.javagl.jgltf.model.io.v2.GltfReaderV2;
 import lombok.Cleanup;
 import lombok.NoArgsConstructor;
 import lombok.val;
+import org.joml.Matrix4d;
+import org.joml.Quaterniond;
+import org.joml.Vector3d;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.sdl.SDL_Event;
@@ -314,8 +318,8 @@ public final class Application {
     private static final int MaxFramesInFlight = 2;
     private static final String shaderEntryPoint = "main";
 
-    private static final long VertexBufferBytes = 64 * 1024 * 1024; // 64MB vertex budget
-    private static final long IndexBufferBytes = 32 * 1024 * 1024; // 32MB index budget
+    private static final long VertexBufferBytes = 128 * 1024 * 1024; // 128MB vertex budget
+    private static final long IndexBufferBytes = 64 * 1024 * 1024; // 64MB index budget
     private static final int MaxNumVertices;
     private static final int MaxNumIndices;
 
@@ -399,9 +403,9 @@ public final class Application {
     private /*(VkDescriptorPool)*/ long m_descPool = NULL;
 
     // game nodes and scene data
-    //	NodeWorld m_nodeWorld;
-    //	uint32_t m_rootNodeId = 0;
-    //	uint32_t m_lastRootNodeId = 0;
+    private @Nullable NodeWorld m_nodeWorld;
+    private int m_rootNodeId = 0;
+    private int m_lastRootNodeId = 0;
     //	std::vector<std::pair<Node *, glm::mat4>> m_nodeRenderStack;
 
     // camera related
@@ -416,6 +420,11 @@ public final class Application {
     public boolean initialize() {
         SDL_InitSubSystem(SDL_INIT_VIDEO);
         m_window = SDL_CreateWindow("Vulkan Learning", m_width, m_height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+
+        // setup renderer specifics here
+        m_nodeWorld = new NodeWorld(1024); // maximum node-world size
+//        m_nodeRenderStack.reserve(128); // render-stack per-frame size
+
         if (m_window == NULL) {
             showError("Error creating window");
             return false;
@@ -480,8 +489,8 @@ public final class Application {
 
         m_textures.add(new Texture(m_whitePixelImageId, whiteSamplerId));
 
+//        loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
         loadGltf("./glTF-Sample-Assets/Models/Cube/glTF/Cube.gltf");
-        // loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
 
         return true;
     }
@@ -2318,7 +2327,21 @@ public final class Application {
             meshIds = loadMeshes(model, materialIds, buffers); // meshes/submeshes reference materials
         }
 
-        // https://github.com/nickenchev/modern-vulkan/blob/lesson_02/src/application.cpp#L358C15-L358C38
+        val scenes = model.getScenes();
+        val rootScene = scenes.get(Objects.requireNonNullElse(model.getScene(), 0));
+        val sceneNodes = rootScene.getNodes();
+
+        for (val nodeIndex : sceneNodes) {
+            val nodeId = importNode(model, nodeIndex, 0, m_lastRootNodeId, meshIds);
+            if (m_rootNodeId == 0) {
+                // first root node
+                m_rootNodeId = nodeId;
+                m_lastRootNodeId = nodeId;
+            } else {
+                // subsequent root nodes, link to previous root node
+                m_lastRootNodeId = nodeId;
+            }
+        }
     }
 
     private @Nullable Image[] loadImages(Arena arena, GlTF model, Path imageDir) {
@@ -2715,6 +2738,71 @@ public final class Application {
             meshIds[i] = m_meshes.size();
         }
         return meshIds;
+    }
+
+    private int importNode(GlTF model, int nodeIndex, int parentId, int prevSiblingId, int[] meshIds) {
+        assert m_nodeWorld != null;
+
+        val gltfNodes = model.getNodes();
+        val gltfNode = gltfNodes.get(nodeIndex);
+
+        final Node node;
+        final int nodeId;
+        {
+            val pair = m_nodeWorld.createNode();
+            node = pair.fst();
+            nodeId = pair.snd();
+        }
+        node.parentId = parentId;
+
+        tf:
+        {
+            val rawTransform = gltfNode.getMatrix();
+            if (rawTransform != null) {
+                node.setTransform(new Matrix4d(rawTransform));
+                // Got a matrix, so we assume it's all we need.
+                break tf;
+            }
+            // Go piece by piece i guess
+            val rawTranslation = gltfNode.getTranslation();
+            if (rawTranslation != null) {
+                node.setTranslation(new Vector3d(rawTranslation));
+            }
+            val rawScale = gltfNode.getScale();
+            if (rawScale != null) {
+                node.setScale(new Vector3d(rawScale));
+            }
+            val rawRotation = gltfNode.getRotation();
+            if (rawRotation != null) {
+                node.setRotation(new Quaterniond(rawRotation));
+            }
+        }
+
+        val mesh = gltfNode.getMesh();
+        if (mesh != null) {
+            node.meshId = meshIds[mesh];
+        }
+
+        if (prevSiblingId != 0) {
+            m_nodeWorld.getNode(prevSiblingId).nextSiblingId = nodeId;
+        }
+
+        // Iterate through child nodes
+        val children = gltfNode.getChildren();
+        if (children != null) {
+            var lastChildId = 0;
+
+            for (val childIndex : children) {
+                lastChildId = importNode(model, childIndex, nodeId, lastChildId, meshIds);
+
+                // set parent's first child id field
+                if (node.firstChildId != 0) {
+                    node.firstChildId = lastChildId;
+                }
+            }
+        }
+
+        return nodeId;
     }
 
     @NoArgsConstructor
