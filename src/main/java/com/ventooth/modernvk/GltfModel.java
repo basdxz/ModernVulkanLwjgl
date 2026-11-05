@@ -17,20 +17,43 @@ import static org.lwjgl.vulkan.VK10.VK_SAMPLER_ADDRESS_MODE_REPEAT;
 import static org.lwjgl.vulkan.VK10.VK_SAMPLER_MIPMAP_MODE_LINEAR;
 import static org.lwjgl.vulkan.VK10.VK_SAMPLER_MIPMAP_MODE_NEAREST;
 
-// https://github.com/syoyo/tinygltf/blob/0d9ce1a9561688c6c6e7471430d15a50a0b15f1a/tiny_gltf_v3.h#L201-L212
+// https://github.com/syoyo/tinygltf/blob/0d9ce1a9561688c6c6e7471430d15a50a0b15f1a/tiny_gltf_v3.h#L171C1-L212
 public final class GltfModel {
+    // @formatter:off
+
+    /* Primitive modes */
+    public static final int TG3_MODE_POINTS         = 0;
+    public static final int TG3_MODE_LINE           = 1;
+    public static final int TG3_MODE_LINE_LOOP      = 2;
+    public static final int TG3_MODE_LINE_STRIP     = 3;
+    public static final int TG3_MODE_TRIANGLES      = 4;
+    public static final int TG3_MODE_TRIANGLE_STRIP = 5;
+    public static final int TG3_MODE_TRIANGLE_FAN   = 6;
+
+    /* Component types */
+    public static final int TG3_COMPONENT_TYPE_BYTE             = 5120;
+    public static final int TG3_COMPONENT_TYPE_UNSIGNED_BYTE    = 5121;
+    public static final int TG3_COMPONENT_TYPE_SHORT            = 5122;
+    public static final int TG3_COMPONENT_TYPE_UNSIGNED_SHORT   = 5123;
+    public static final int TG3_COMPONENT_TYPE_INT              = 5124;
+    public static final int TG3_COMPONENT_TYPE_UNSIGNED_INT     = 5125;
+    public static final int TG3_COMPONENT_TYPE_FLOAT            = 5126;
+    public static final int TG3_COMPONENT_TYPE_DOUBLE           = 5130;
+
     /* Texture filter */
-    public static final int TG3_TEXTURE_FILTER_NEAREST = 9728;
-    public static final int TG3_TEXTURE_FILTER_LINEAR = 9729;
-    public static final int TG3_TEXTURE_FILTER_NEAREST_MIPMAP_NEAREST = 9984;
-    public static final int TG3_TEXTURE_FILTER_LINEAR_MIPMAP_NEAREST = 9985;
-    public static final int TG3_TEXTURE_FILTER_NEAREST_MIPMAP_LINEAR = 9986;
-    public static final int TG3_TEXTURE_FILTER_LINEAR_MIPMAP_LINEAR = 9987;
+    public static final int TG3_TEXTURE_FILTER_NEAREST                  = 9728;
+    public static final int TG3_TEXTURE_FILTER_LINEAR                   = 9729;
+    public static final int TG3_TEXTURE_FILTER_NEAREST_MIPMAP_NEAREST   = 9984;
+    public static final int TG3_TEXTURE_FILTER_LINEAR_MIPMAP_NEAREST    = 9985;
+    public static final int TG3_TEXTURE_FILTER_NEAREST_MIPMAP_LINEAR    = 9986;
+    public static final int TG3_TEXTURE_FILTER_LINEAR_MIPMAP_LINEAR     = 9987;
 
     /* Texture wrap */
-    public static final int TG3_TEXTURE_WRAP_REPEAT = 10497;
-    public static final int TG3_TEXTURE_WRAP_CLAMP_TO_EDGE = 33071;
-    public static final int TG3_TEXTURE_WRAP_MIRRORED_REPEAT = 33648;
+    public static final int TG3_TEXTURE_WRAP_REPEAT             = 10497;
+    public static final int TG3_TEXTURE_WRAP_CLAMP_TO_EDGE      = 33071;
+    public static final int TG3_TEXTURE_WRAP_MIRRORED_REPEAT    = 33648;
+
+    // @formatter:on
 
     public static final Map<Integer, Triple<Integer, Integer, Float>> filterMap;
     public static final Map<Integer, Integer> wrapMap;

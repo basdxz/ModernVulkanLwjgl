@@ -2,6 +2,7 @@ package com.ventooth.modernvk;
 
 import com.ventooth.modernvk.Structs.Material;
 import com.ventooth.modernvk.Structs.RenderItem;
+import com.ventooth.modernvk.Structs.vec3;
 import de.javagl.jgltf.impl.v2.GlTF;
 import de.javagl.jgltf.model.io.v2.GltfReaderV2;
 import lombok.Cleanup;
@@ -89,17 +90,24 @@ import org.lwjgl.vulkan.VkViewport;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
-import java.nio.IntBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.IntStream;
 
+import static com.ventooth.modernvk.GltfModel.TG3_COMPONENT_TYPE_FLOAT;
+import static com.ventooth.modernvk.GltfModel.TG3_COMPONENT_TYPE_UNSIGNED_INT;
+import static com.ventooth.modernvk.GltfModel.TG3_COMPONENT_TYPE_UNSIGNED_SHORT;
 import static com.ventooth.modernvk.Structs.Vertex;
+import static com.ventooth.modernvk.Structs.vec2;
+import static com.ventooth.modernvk.Structs.vec4;
 import static com.ventooth.modernvk.Utils.readTextFile;
 import static org.lwjgl.sdl.SDLEvents.SDL_EVENT_QUIT;
 import static org.lwjgl.sdl.SDLEvents.SDL_EVENT_WINDOW_RESIZED;
@@ -306,6 +314,21 @@ public final class Application {
     private static final int MaxFramesInFlight = 2;
     private static final String shaderEntryPoint = "main";
 
+    private static final long VertexBufferBytes = 64 * 1024 * 1024; // 64MB vertex budget
+    private static final long IndexBufferBytes = 32 * 1024 * 1024; // 32MB index budget
+    private static final int MaxNumVertices;
+    private static final int MaxNumIndices;
+
+    static {
+        val vertexSize = Vertex.$.layout()
+                                 .byteSize();
+        val indexSize = Vertex.$.layout()
+                                .byteSize();
+
+        MaxNumVertices = (int) (VertexBufferBytes / vertexSize);
+        MaxNumIndices = (int) (IndexBufferBytes / indexSize);
+    }
+
     private /*(SDL_Window*)*/ long m_window = NULL;
     private int m_width = 1280;
     private int m_height = 720;
@@ -352,10 +375,9 @@ public final class Application {
 
     // cpu resources
     private @Nullable Arena m_arena;
-    //	std::vector<Mesh> m_meshes;
+    private final List<Mesh> m_meshes = new ArrayList<>();
     private @Nullable StructArray<Vertex> m_vertices;
     private @Nullable MemorySegment m_indices;
-    private @Nullable IntBuffer m_indicesInts;
     private int m_vertOffset = 0;
     private int m_idxOffset = 0;
 
@@ -408,20 +430,9 @@ public final class Application {
         @Cleanup val stack = MemoryStack.stackPush();
 
         // Preallocate mem for vertex and index data
-        val vertexBufferBytes = 64 * 1024 * 1024; // 64MB vertex budget
-        val indexBufferBytes = 32 * 1024 * 1024; // 32MB index budget
-        val totalVerts = vertexBufferBytes /
-                         Vertex.$.layout()
-                                 .byteSize();
-        val totalIndices = indexBufferBytes /
-                           FFM.uint32_t.layout()
-                                       .byteSize();
-
         m_arena = Arena.ofShared();
-        m_vertices = Vertex.$.allocate(m_arena, totalVerts);
-        m_indices = FFM.uint32_t.allocateSegment(m_arena, totalIndices);
-        m_indicesInts = m_indices.asByteBuffer()
-                                 .asIntBuffer();
+        m_vertices = Vertex.$.allocate(m_arena, MaxNumVertices);
+        m_indices = FFM.uint32_t.allocateSegment(m_arena, MaxNumIndices);
 
         m_materials = Material.$.allocate(m_arena, MaxMaterials);
 
@@ -470,7 +481,7 @@ public final class Application {
         m_textures.add(new Texture(m_whitePixelImageId, whiteSamplerId));
 
         loadGltf("./glTF-Sample-Assets/Models/Cube/glTF/Cube.gltf");
-//        loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
+        // loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
 
         return true;
     }
@@ -680,11 +691,11 @@ public final class Application {
         }
         VK.destroy();
 
+        m_meshes.clear();
         m_matOffset = 0;
         m_idxOffset = 0;
         m_vertOffset = 0;
         m_materials = null;
-        m_indicesInts = null;
         m_vertices = null;
         m_indices = null;
         if (m_arena != null) {
@@ -901,7 +912,7 @@ public final class Application {
             // look through list and see if a dGPU exists
             for (val dev : list) {
                 vkGetPhysicalDeviceProperties(dev, props);
-                if (props.deviceType() == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+                if (props.deviceType() == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
                     selectedDev = dev;
                     break;
                 }
@@ -2253,6 +2264,8 @@ public final class Application {
 
     private void loadGltf(String fileName) {
         val filePath = Paths.get(fileName);
+        val fileDir = filePath.getParent();
+
         if (!Files.isRegularFile(filePath)) {
             IO.println("File doesn't exist: %s".formatted(fileName));
             return;
@@ -2274,14 +2287,36 @@ public final class Application {
 
         final int[] imageIds;
         try (val arena = Arena.ofConfined()) { // frees image memory after uploading to VRAM
-            val imageDir = filePath.getParent();
-            val images = loadImages(arena, model, imageDir); // load images into RAM
+            val images = loadImages(arena, model, fileDir); // load images into RAM
             imageIds = uploadImages(images); // upload images to VRAM
         }
 
         val samplerIds = loadSamplers(model); // samplers required for shaders
         val textureIds = loadTextures(model, imageIds, samplerIds); // image/sampler combinations
         val materialIds = loadMaterials(model, textureIds); // materials reference textureIds
+
+        final int[] meshIds;
+        try (val arena = Arena.ofConfined()) {
+            val gltfBuffers = model.getBuffers();
+            val numBuffers = gltfBuffers.size();
+
+            // Pre-map all the buffers and confine them to the scoped arena
+            val buffers = new MemorySegment[numBuffers];
+            for (var i = 0; i < numBuffers; i++) {
+                val gltfBuffer = gltfBuffers.get(i);
+                val bufferPath = fileDir.resolve(gltfBuffer.getUri());
+                try (val fc = FileChannel.open(bufferPath, StandardOpenOption.READ)) {
+                    buffers[i] = fc.map(FileChannel.MapMode.READ_ONLY, 0, gltfBuffer.getByteLength(), arena);
+                } catch (Exception e) {
+                    IO.println("Error parsing glTF file");
+                    //noinspection CallToPrintStackTrace
+                    e.printStackTrace();
+                    return;
+                }
+            }
+
+            meshIds = loadMeshes(model, materialIds, buffers); // meshes/submeshes reference materials
+        }
 
         // https://github.com/nickenchev/modern-vulkan/blob/lesson_02/src/application.cpp#L358C15-L358C38
     }
@@ -2387,7 +2422,7 @@ public final class Application {
             val magFilter = GltfModel.filterMap.getOrDefault(gltfSampler.getMagFilter(), GltfModel.defaultFilter);
             val minFilter = GltfModel.filterMap.getOrDefault(gltfSampler.getMinFilter(), GltfModel.defaultFilter);
             val wrapS = GltfModel.wrapMap.getOrDefault(gltfSampler.getWrapS(), GltfModel.defaultWrap);
-            val wrapT = GltfModel.wrapMap.getOrDefault(gltfSampler.getWrapS(), GltfModel.defaultWrap);
+            val wrapT = GltfModel.wrapMap.getOrDefault(gltfSampler.getWrapT(), GltfModel.defaultWrap);
 
             samplerInfo.magFilter(magFilter.fst())
                        .minFilter(minFilter.fst())
@@ -2461,9 +2496,225 @@ public final class Application {
                    .w((float) color[3]);
                 mat.textureIndex(textureIndex);
             });
-            textureIds[i] = materialId;
+            materialIds[i] = materialId;
         }
         return materialIds;
+    }
+
+    private int[] loadMeshes(GlTF model, int[] materialIds, MemorySegment[] buffers) {
+        assert m_vertices != null;
+        assert m_indices != null;
+
+        val gltfMeshes = model.getMeshes();
+        val numMeshes = gltfMeshes.size();
+
+        val meshIds = new int[numMeshes];
+
+        // Load all gltf mesh and primitive data
+        for (var i = 0; i < numMeshes; i++) {
+            val gltfMesh = gltfMeshes.get(i);
+            val gltfAccessors = model.getAccessors();
+            val gltfBufferViews = model.getBufferViews();
+            val gltfPrimitives = gltfMesh.getPrimitives();
+
+            val name = Objects.requireNonNullElse(gltfMesh.getName(), "No Name");
+            val numSubMeshes = gltfPrimitives.size();
+            val mesh = new Mesh(name, numSubMeshes);
+
+            for (var j = 0; j < numSubMeshes; j++) {
+                val gltfPrimitive = gltfPrimitives.get(j);
+                val subMesh = mesh.subMeshes[j];
+                subMesh.materialId = materialIds[Objects.requireNonNullElse(gltfPrimitive.getMaterial(), 0)];
+                subMesh.vertexStart = m_vertOffset;
+                subMesh.indexStart = m_idxOffset;
+
+                // Copy the vertex data
+                val gltfAttributes = gltfPrimitive.getAttributes();
+                {
+                    val acc = Optional.ofNullable(gltfAttributes.get("POSITION"))
+                                      .map(gltfAccessors::get)
+                                      .orElseThrow();
+                    val count = acc.getCount();
+                    if (m_vertOffset + count > MaxNumVertices) {
+                        throw new IllegalStateException("Not enough space to load vertices");
+                    }
+                    subMesh.vertexCount = count;
+
+                    if (!"VEC3".equals(acc.getType())) {
+                        throw new IllegalStateException();
+                    }
+                    if (!(acc.getComponentType() == TG3_COMPONENT_TYPE_FLOAT)) {
+                        throw new IllegalStateException();
+                    }
+
+                    val bufView = gltfBufferViews.get(acc.getBufferView());
+                    val fullBuf = buffers[bufView.getBuffer()];
+                    val slicedBuf = fullBuf.asSlice(Objects.requireNonNullElseGet(bufView.getByteOffset(),
+                                                                                  bufView::defaultByteOffset),
+                                                    bufView.getByteLength());
+                    val attrArray = new StructArray<>(vec3.$, slicedBuf);
+
+                    for (var k = 0; k < count; k++) {
+                        val dst = m_vertices.get(m_vertOffset + k);
+                        dst.position(attrArray.get(k));
+
+                        // Applies Default vertex values
+                        // @formatter:off
+                        dst.color().x(1F).y(1F).z(1F);
+                        dst.normal().x(0F).y(0F).z(0F);
+                        dst.uv().x(0F).y(0F);
+                        // @formatter:on
+                    }
+                }
+                normal:
+                {
+                    val acc = Optional.ofNullable(gltfAttributes.get("NORMAL"))
+                                      .map(gltfAccessors::get)
+                                      .orElse(null);
+                    if (acc == null) {
+                        break normal;
+                    }
+                    val count = acc.getCount();
+                    if (count != subMesh.vertexCount) {
+                        throw new IllegalStateException();
+                    }
+
+                    if (!"VEC3".equals(acc.getType())) {
+                        throw new IllegalStateException();
+                    }
+                    if (!(acc.getComponentType() == TG3_COMPONENT_TYPE_FLOAT)) {
+                        throw new IllegalStateException();
+                    }
+
+                    val bufView = gltfBufferViews.get(acc.getBufferView());
+                    val fullBuf = buffers[bufView.getBuffer()];
+                    val slicedBuf = fullBuf.asSlice(Objects.requireNonNullElseGet(bufView.getByteOffset(),
+                                                                                  bufView::defaultByteOffset),
+                                                    bufView.getByteLength());
+                    val attrArray = new StructArray<>(vec3.$, slicedBuf);
+
+                    for (var k = 0; k < count; k++) {
+                        m_vertices.get(m_vertOffset + k)
+                                  .normal(attrArray.get(k));
+                    }
+                }
+                color:
+                {
+                    val acc = Optional.ofNullable(gltfAttributes.get("COLOR_0"))
+                                      .map(gltfAccessors::get)
+                                      .orElse(null);
+                    if (acc == null) {
+                        break color;
+                    }
+                    val count = acc.getCount();
+                    if (count != subMesh.vertexCount) {
+                        throw new IllegalStateException();
+                    }
+
+                    if (!"VEC3".equals(acc.getType()) && !"VEC4".equals(acc.getType())) {
+                        throw new IllegalStateException();
+                    }
+                    if (!(acc.getComponentType() == TG3_COMPONENT_TYPE_FLOAT)) {
+                        throw new IllegalStateException();
+                    }
+
+                    val bufView = gltfBufferViews.get(acc.getBufferView());
+                    val fullBuf = buffers[bufView.getBuffer()];
+                    val slicedBuf = fullBuf.asSlice(Objects.requireNonNullElseGet(bufView.getByteOffset(),
+                                                                                  bufView::defaultByteOffset),
+                                                    bufView.getByteLength());
+
+                    if ("VEC3".equals(acc.getType())) {
+                        val attrArray = new StructArray<>(vec3.$, slicedBuf);
+                        for (var k = 0; k < count; k++) {
+                            m_vertices.get(m_vertOffset + k)
+                                      .color(attrArray.get(k));
+                        }
+                    } else {
+                        val attrArray = new StructArray<>(vec4.$, slicedBuf);
+                        for (var k = 0; k < count; k++) {
+                            val src = attrArray.get(k);
+                            val dst = m_vertices.get(m_vertOffset + k)
+                                                .color();
+                            dst.x(src.x())
+                               .y(src.y())
+                               .z(src.z());
+                        }
+                    }
+                }
+                uv:
+                {
+                    val acc = Optional.ofNullable(gltfAttributes.get("TEXCOORD_0"))
+                                      .map(gltfAccessors::get)
+                                      .orElse(null);
+                    if (acc == null) {
+                        break uv;
+                    }
+                    val count = acc.getCount();
+                    if (count != subMesh.vertexCount) {
+                        throw new IllegalStateException();
+                    }
+
+                    if (!"VEC2".equals(acc.getType())) {
+                        throw new IllegalStateException();
+                    }
+                    if (!(acc.getComponentType() == TG3_COMPONENT_TYPE_FLOAT)) {
+                        throw new IllegalStateException();
+                    }
+
+                    val bufView = gltfBufferViews.get(acc.getBufferView());
+                    val fullBuf = buffers[bufView.getBuffer()];
+                    val slicedBuf = fullBuf.asSlice(Objects.requireNonNullElseGet(bufView.getByteOffset(),
+                                                                                  bufView::defaultByteOffset),
+                                                    bufView.getByteLength());
+                    val attrArray = new StructArray<>(vec2.$, slicedBuf);
+
+                    for (var k = 0; k < count; k++) {
+                        m_vertices.get(m_vertOffset + k)
+                                  .uv(attrArray.get(k));
+                    }
+                }
+
+                m_vertOffset += subMesh.vertexCount;
+
+                // Copy index data
+                {
+                    val acc = Optional.ofNullable(gltfPrimitive.getIndices())
+                                      .map(gltfAccessors::get)
+                                      .orElseThrow();
+                    val count = acc.getCount();
+                    if (m_idxOffset + count > MaxNumIndices) {
+                        throw new IllegalStateException("Not enough space for indices");
+                    }
+                    if (!(acc.getComponentType() == TG3_COMPONENT_TYPE_UNSIGNED_INT) &&
+                        !(acc.getComponentType() == TG3_COMPONENT_TYPE_UNSIGNED_SHORT)) {
+                        throw new IllegalStateException();
+                    }
+
+                    subMesh.indexStart = m_idxOffset;
+                    subMesh.indexCount = count;
+
+                    val bufView = gltfBufferViews.get(acc.getBufferView());
+                    val fullBuf = buffers[bufView.getBuffer()];
+                    val slicedBuf = fullBuf.asSlice(Objects.requireNonNullElseGet(bufView.getByteOffset(),
+                                                                                  bufView::defaultByteOffset),
+                                                    bufView.getByteLength());
+
+                    if (acc.getComponentType() == TG3_COMPONENT_TYPE_UNSIGNED_INT) {
+                        MemorySegment.copy(slicedBuf, 0, m_indices, m_idxOffset, count);
+                    } else {
+                        for (var k = 0; k < count; k++) {
+                            val index = slicedBuf.getAtIndex(FFM.uint16_t.layout(), k);
+                            m_indices.setAtIndex(FFM.uint32_t.layout(), k, index);
+                        }
+                    }
+                }
+                m_idxOffset += subMesh.indexCount;
+            }
+            m_meshes.add(mesh);
+            meshIds[i] = m_meshes.size();
+        }
+        return meshIds;
     }
 
     @NoArgsConstructor
@@ -2500,5 +2751,25 @@ public final class Application {
 
     record Texture(int imageId,
                    int samplerId) {
+    }
+
+    static final class Mesh {
+        final String name;
+        final SubMesh[] subMeshes;
+
+        Mesh(String name, int numSubMeshes) {
+            this.name = name;
+            this.subMeshes = IntStream.range(0, numSubMeshes)
+                                      .mapToObj(_ -> new SubMesh())
+                                      .toArray(SubMesh[]::new);
+        }
+    }
+
+    static final class SubMesh {
+        int vertexStart = 0;
+        int vertexCount = 0;
+        int indexStart = 0;
+        int indexCount = 0;
+        int materialId = 0;
     }
 }
