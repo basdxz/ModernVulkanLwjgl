@@ -1,5 +1,6 @@
 package com.ventooth.modernvk;
 
+import com.ventooth.modernvk.Structs.FrameConstants;
 import com.ventooth.modernvk.Structs.Material;
 import com.ventooth.modernvk.Structs.RenderItem;
 import com.ventooth.modernvk.Structs.vec3;
@@ -9,6 +10,7 @@ import lombok.Cleanup;
 import lombok.NoArgsConstructor;
 import lombok.val;
 import org.joml.Matrix4d;
+import org.joml.Matrix4dc;
 import org.joml.Quaterniond;
 import org.joml.Vector3d;
 import org.jspecify.annotations.Nullable;
@@ -17,6 +19,7 @@ import org.lwjgl.sdl.SDL_Event;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.system.NativeType;
+import org.lwjgl.system.SegmentStack;
 import org.lwjgl.system.ffm.FFM;
 import org.lwjgl.system.ffm.StructArray;
 import org.lwjgl.util.vma.VmaAllocationCreateInfo;
@@ -74,6 +77,7 @@ import org.lwjgl.vulkan.VkPipelineShaderStageCreateInfo;
 import org.lwjgl.vulkan.VkPipelineVertexInputStateCreateInfo;
 import org.lwjgl.vulkan.VkPipelineViewportStateCreateInfo;
 import org.lwjgl.vulkan.VkPresentInfoKHR;
+import org.lwjgl.vulkan.VkPushConstantRange;
 import org.lwjgl.vulkan.VkQueue;
 import org.lwjgl.vulkan.VkQueueFamilyProperties2;
 import org.lwjgl.vulkan.VkRect2D;
@@ -103,6 +107,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -238,6 +243,7 @@ import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_SAMPLED_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_VIEW_TYPE_2D;
+import static org.lwjgl.vulkan.VK10.VK_INDEX_TYPE_UINT32;
 import static org.lwjgl.vulkan.VK10.VK_NULL_HANDLE;
 import static org.lwjgl.vulkan.VK10.VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
 import static org.lwjgl.vulkan.VK10.VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -254,10 +260,13 @@ import static org.lwjgl.vulkan.VK10.VK_TRUE;
 import static org.lwjgl.vulkan.VK10.vkAllocateCommandBuffers;
 import static org.lwjgl.vulkan.VK10.vkAllocateDescriptorSets;
 import static org.lwjgl.vulkan.VK10.vkBeginCommandBuffer;
+import static org.lwjgl.vulkan.VK10.vkCmdBindDescriptorSets;
+import static org.lwjgl.vulkan.VK10.vkCmdBindIndexBuffer;
 import static org.lwjgl.vulkan.VK10.vkCmdBindPipeline;
 import static org.lwjgl.vulkan.VK10.vkCmdCopyBuffer;
 import static org.lwjgl.vulkan.VK10.vkCmdCopyBufferToImage;
-import static org.lwjgl.vulkan.VK10.vkCmdDraw;
+import static org.lwjgl.vulkan.VK10.vkCmdDrawIndexedIndirect;
+import static org.lwjgl.vulkan.VK10.vkCmdPushConstants;
 import static org.lwjgl.vulkan.VK10.vkCmdSetScissor;
 import static org.lwjgl.vulkan.VK10.vkCmdSetViewport;
 import static org.lwjgl.vulkan.VK10.vkCreateCommandPool;
@@ -421,7 +430,7 @@ public final class Application {
     private @Nullable NodeWorld m_nodeWorld;
     private int m_rootNodeId = 0;
     private int m_lastRootNodeId = 0;
-    //	std::vector<std::pair<Node *, glm::mat4>> m_nodeRenderStack;
+    private final Deque<Pair<Node, Matrix4dc>> m_nodeRenderStack = new ArrayDeque<>(128);
 
     // camera related
     private double m_camDistance = 3D;
@@ -505,7 +514,7 @@ public final class Application {
 
         m_textures.add(new Texture(m_whitePixelImageId, whiteSamplerId));
 
-        //        loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
+//        loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
         loadGltf("./glTF-Sample-Assets/Models/Cube/glTF/Cube.gltf");
 
         // Staging buffers for geo data
@@ -1619,9 +1628,15 @@ public final class Application {
 
         // Need to define a pipeline layout
         {
+            val pushConstRange = VkPushConstantRange.calloc(1, stack)
+                                                    .stageFlags(VK_SHADER_STAGE_VERTEX_BIT |
+                                                                VK_SHADER_STAGE_FRAGMENT_BIT)
+                                                    .offset(0)
+                                                    .size((int) FrameConstants.$.sizeof());
             val pipelineLayoutInfo = VkPipelineLayoutCreateInfo.calloc(stack)
                                                                .sType$Default()
-                                                               .setLayoutCount(0);
+                                                               .pSetLayouts(stack.longs(m_globalDSLayout))
+                                                               .pPushConstantRanges(pushConstRange);
             val ptr = stack.callocLong(1);
             if (vkCreatePipelineLayout(m_device, pipelineLayoutInfo, null, ptr) != VK_SUCCESS) {
                 showError("Unable to create the pipeline layout");
@@ -2175,6 +2190,7 @@ public final class Application {
         assert m_swapchainImages != null;
         assert m_swapchainImageViews != null;
         assert m_renderCompleteSemaphores != null;
+        assert m_nodeWorld != null;
 
         @Cleanup val stack = MemoryStack.stackPush();
 
@@ -2207,6 +2223,10 @@ public final class Application {
             assert res.commandPool != NULL;
             assert res.commandBuffer != null;
             assert res.imageAcquiredSemaphore != NULL;
+            assert res.indirectDrawBuffer != null;
+            assert res.renderItemBuffer != null;
+            assert res.indirectDrawPtr != null;
+            assert res.renderItemPtr != null;
         }
 
         // Now it's safe to start recording commands
@@ -2245,6 +2265,71 @@ public final class Application {
             assert swapchainImage != NULL;
             assert swapchainImageView != NULL;
             assert renderCompleteSemaphore != NULL;
+        }
+
+        // Traverse entire scene and record MDI draw commands
+
+        val camPosition = new Vector3d(Math.cos(m_camYaw) * Math.cos(m_camPitch),
+                                       Math.sin(m_camYaw) * Math.sin(m_camPitch),
+                                       Math.sin(m_camYaw) * Math.cos(m_camPitch)).mul(m_camDistance);
+
+        val aspectRatio = (double) m_width / m_height;
+        val matView = new Matrix4d().lookAt(camPosition, new Vector3d(0D, 0D, 0D), new Vector3d(0D, 1D, 0D));
+        val matProj = new Matrix4d().perspective(Math.toRadians(75D), aspectRatio, 0.01D, 1000D);
+        val matViewProj = matProj.mul(matView, new Matrix4d());
+
+        // Push root nodes to render-stack
+        m_nodeRenderStack.clear();
+        var nodeId = m_rootNodeId;
+        while (nodeId != 0) {
+            val node = m_nodeWorld.getNode(nodeId);
+            m_nodeRenderStack.push(new Pair<>(node, new Matrix4d()));
+            nodeId = node.nextSiblingId;
+        }
+
+        var drawIndex = 0;
+        while (!m_nodeRenderStack.isEmpty()) {
+            final Node node;
+            final Matrix4dc parentTransform;
+            {
+                val pair = m_nodeRenderStack.pop();
+                node = pair.fst();
+                parentTransform = pair.snd();
+            }
+
+            val matWorld = parentTransform.mul(node.getTransform(), new Matrix4d());
+            val wvp = matViewProj.mul(matWorld, new Matrix4d());
+
+            // Draw the associated mesh
+            val meshId = node.meshId;
+            if (meshId != 0) {
+                val mesh = m_meshes.get(meshId - 1);
+                for (val subMesh : mesh.subMeshes) {
+                    drawIndex++;
+
+                    // Indirect draw command
+                    val indirectDrawPtr = res.indirectDrawPtr.get(drawIndex);
+                    indirectDrawPtr.indexCount(subMesh.indexCount)
+                                   .instanceCount(1)
+                                   .firstIndex(subMesh.indexStart)
+                                   .vertexOffset(subMesh.vertexStart)
+                                   .firstIndex(drawIndex);
+
+                    // Per render-item data
+                    val renderItemPtr = res.renderItemPtr.get(drawIndex);
+                    Utils.setMat4(wvp, renderItemPtr.wvp());
+                    Utils.setMat4(matWorld, renderItemPtr.worldMatrix());
+                    renderItemPtr.materialIndex(subMesh.materialId - 1);
+                }
+            }
+
+            // Child nodes for processing
+            var childNodeId = node.firstChildId;
+            while (childNodeId != 0) {
+                val child = m_nodeWorld.getNode(childNodeId);
+                m_nodeRenderStack.push(new Pair<>(child, matWorld));
+                childNodeId = child.nextSiblingId;
+            }
         }
 
         // Begin recording commands
@@ -2307,7 +2392,8 @@ public final class Application {
                             .imageLayout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
                             .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR) // Clear the image
                             .storeOp(VK_ATTACHMENT_STORE_OP_STORE) // Keep data for presentation
-                            .clearValue(clr -> clr.color(v -> v.float32(stack.floats(0.01F, 0.01F, 0.01F, 1F))));
+                            .clearValue(clr -> clr.color(v -> v.float32(stack.floats(0.3F, 0.3F, 1F, 1F))));
+            //                            .clearValue(clr -> clr.color(v -> v.float32(stack.floats(0.01F, 0.01F, 0.01F, 1F))));
             val depthAttachInfo = VkRenderingAttachmentInfo.calloc(stack)
                                                            .sType$Default();
             depthAttachInfo.imageView(m_depthImageView)
@@ -2327,6 +2413,34 @@ public final class Application {
                                            .pDepthAttachment(depthAttachInfo);
         }
 
+        // Setup frame data
+        vkCmdBindDescriptorSets(res.commandBuffer,
+                                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_pipelineLayout,
+                                0,
+                                stack.longs(m_globalDescSet),
+                                null);
+
+        // Push frame constants
+        try (val segStack = SegmentStack.stackPush()) {
+            val frameConsts = FrameConstants.$.allocate(segStack);
+            val buf = FrameConstants.$.asSegment(frameConsts)
+                                      .asByteBuffer();
+
+            val vertBuffer = m_buffers.get(m_vertexBufferId - 1);
+            val materialBuffer = m_buffers.get(m_matBufferId - 1);
+            val renderItemBuffer = res.renderItemBuffer;
+            frameConsts.vertexBufferAddress(vertBuffer.deviceAddress)
+                       .materialBufferAddress(materialBuffer.deviceAddress)
+                       .renderItemsAddress(renderItemBuffer.deviceAddress);
+
+            val flags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+            vkCmdPushConstants(res.commandBuffer, m_pipelineLayout, flags, 0, buf);
+        }
+
+        val idxBuffer = m_buffers.get(m_indexBufferId - 1);
+        vkCmdBindIndexBuffer(res.commandBuffer, idxBuffer.vkBuffer, 0, VK_INDEX_TYPE_UINT32);
+
         // Begin dynamic rendering
         vkCmdBeginRendering(res.commandBuffer, renderingInfo);
         {
@@ -2344,10 +2458,12 @@ public final class Application {
                     .offset(o -> o.set(0, 0))
                     .extent(ext -> ext.set(m_swapchainWidth, m_swapchainHeight));
             vkCmdSetScissor(res.commandBuffer, 0, scissors);
-
-            // Draw our triangle
             vkCmdBindPipeline(res.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
-            vkCmdDraw(res.commandBuffer, 3, 1, 0, 0);
+            vkCmdDrawIndexedIndirect(res.commandBuffer,
+                                     res.indirectDrawBuffer.vkBuffer,
+                                     0,
+                                     drawIndex,
+                                     VkDrawIndexedIndirectCommand.SIZEOF);
         }
         // End dynamic rendering
         vkCmdEndRendering(res.commandBuffer);
@@ -2989,7 +3105,6 @@ public final class Application {
         /*(VkCommandPool)*/ long commandPool = NULL;
         @Nullable VkCommandBuffer commandBuffer = null;
         /*(VkSemaphore)*/ long imageAcquiredSemaphore = NULL;
-        //        /*(VkDescriptorSet)*/ long descSet = NULL;
         @Nullable GPUBuffer indirectDrawBuffer = null;
         @Nullable GPUBuffer renderItemBuffer = null;
         VkDrawIndexedIndirectCommand.@Nullable Buffer indirectDrawPtr = null;

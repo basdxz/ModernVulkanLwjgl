@@ -2,10 +2,13 @@ package com.ventooth.modernvk;
 
 import lombok.val;
 import org.jspecify.annotations.Nullable;
+import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.ffm.FFM;
 import org.lwjgl.system.ffm.FFMDefinition;
 import org.lwjgl.system.ffm.StructBinder;
 
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.SegmentAllocator;
 import java.lang.invoke.MethodHandles;
 
 public final class Structs {
@@ -21,6 +24,7 @@ public final class Structs {
         FFM.ffmConfig(RenderItem.class, cfg);
         FFM.ffmConfig(Vertex.class, cfg);
         FFM.ffmConfig(Material.class, cfg);
+        FFM.ffmConfig(FrameConstants.class, cfg);
     }
 
     @FFMDefinition("""
@@ -162,8 +166,8 @@ public final class Structs {
     public interface RenderItem {
         // @formatter:off
         StructBinder<RenderItem> $ = FFM.ffmStruct(RenderItem.class)
-            .m("wvp", mat4.$)
-            .m("worldMatrix", mat4.$)
+            .m("wvp",           mat4.$)
+            .m("worldMatrix",   mat4.$)
             .m("materialIndex", FFM.uint32_t)
             .build();
 
@@ -186,10 +190,10 @@ public final class Structs {
     public interface Vertex {
         // @formatter:off
         StructBinder<Vertex> $ = FFM.ffmStruct(Vertex.class)
-            .m("position", vec3.$)
-            .m("color", vec3.$)
-            .m("normal", vec3.$)
-            .m("uv", vec2.$)
+            .m("position",  vec3.$)
+            .m("color",     vec3.$)
+            .m("normal",    vec3.$)
+            .m("uv",        vec2.$)
             .build();
 
         Vertex  position(vec3 position);
@@ -223,6 +227,31 @@ public final class Structs {
 
         Material    textureIndex(int textureIndex);
         int         textureIndex();
+        // @formatter:on
+    }
+
+    @FFMDefinition("""
+            struct FrameConstants {
+            	uint64_t vertexBufferAddress;
+            	uint64_t materialBufferAddress;
+            	uint64_t renderItemsAddress;
+            }""")
+    public interface FrameConstants {
+        // @formatter:off
+        StructBinder<FrameConstants> $ = FFM.ffmStruct(FrameConstants.class)
+            .m("vertexBufferAddress",   FFM.uint64_t)
+            .m("materialBufferAddress", FFM.uint64_t)
+            .m("renderItemsAddress",    FFM.uint64_t)
+            .build();
+
+        FrameConstants  vertexBufferAddress(long vertexBufferAddress);
+        long            vertexBufferAddress();
+
+        FrameConstants  materialBufferAddress(long materialBufferAddress);
+        long            materialBufferAddress();
+
+        FrameConstants  renderItemsAddress(long renderItemsAddress);
+        long            renderItemsAddress();
         // @formatter:on
     }
 }
