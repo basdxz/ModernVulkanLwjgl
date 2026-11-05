@@ -19,10 +19,17 @@ public final class Main {
         Structs.initialize();
 
         val app = new Application();
-        if (app.initialize()) {
-            app.loadData();
+        run:
+        try {
+            if (!app.initialize()) {
+                break run;
+            }
+            if (!app.loadData()) {
+                break run;
+            }
             app.run();
+        } finally {
+            app.shutdown();
         }
-        app.shutdown();
     }
 }

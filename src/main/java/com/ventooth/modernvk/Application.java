@@ -4,7 +4,6 @@ import com.ventooth.modernvk.Structs.Material;
 import com.ventooth.modernvk.Structs.RenderItem;
 import com.ventooth.modernvk.Structs.vec3;
 import de.javagl.jgltf.impl.v2.GlTF;
-import de.javagl.jgltf.impl.v2.Scene;
 import de.javagl.jgltf.model.io.v2.GltfReaderV2;
 import lombok.Cleanup;
 import lombok.NoArgsConstructor;
@@ -112,6 +111,7 @@ import static com.ventooth.modernvk.GltfModel.TG3_COMPONENT_TYPE_UNSIGNED_SHORT;
 import static com.ventooth.modernvk.Structs.Vertex;
 import static com.ventooth.modernvk.Structs.vec2;
 import static com.ventooth.modernvk.Structs.vec4;
+import static com.ventooth.modernvk.Utils.HALF_PI;
 import static com.ventooth.modernvk.Utils.readTextFile;
 import static org.lwjgl.sdl.SDLEvents.SDL_EVENT_QUIT;
 import static org.lwjgl.sdl.SDLEvents.SDL_EVENT_WINDOW_RESIZED;
@@ -119,8 +119,16 @@ import static org.lwjgl.sdl.SDLEvents.SDL_PollEvent;
 import static org.lwjgl.sdl.SDLInit.SDL_INIT_VIDEO;
 import static org.lwjgl.sdl.SDLInit.SDL_InitSubSystem;
 import static org.lwjgl.sdl.SDLInit.SDL_Quit;
+import static org.lwjgl.sdl.SDLKeyboard.SDL_GetKeyboardState;
 import static org.lwjgl.sdl.SDLMessageBox.SDL_MESSAGEBOX_ERROR;
 import static org.lwjgl.sdl.SDLMessageBox.SDL_ShowSimpleMessageBox;
+import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_A;
+import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_D;
+import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_DOWN;
+import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_S;
+import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_UP;
+import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_W;
+import static org.lwjgl.sdl.SDLTimer.SDL_GetTicks;
 import static org.lwjgl.sdl.SDLVideo.SDL_CreateWindow;
 import static org.lwjgl.sdl.SDLVideo.SDL_DestroyWindow;
 import static org.lwjgl.sdl.SDLVideo.SDL_WINDOW_RESIZABLE;
@@ -409,9 +417,9 @@ public final class Application {
     //	std::vector<std::pair<Node *, glm::mat4>> m_nodeRenderStack;
 
     // camera related
-    //	float m_camDistance = 3;
-    //	float m_camYaw = glm::half_pi<float>();
-    //	float m_camPitch = 0;
+    private double m_camDistance = 3D;
+    private double m_camYaw = HALF_PI;
+    private double m_camPitch = 0D;
 
     private void showError(String errorMessage) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", errorMessage, m_window);
@@ -423,7 +431,7 @@ public final class Application {
 
         // setup renderer specifics here
         m_nodeWorld = new NodeWorld(1024); // maximum node-world size
-//        m_nodeRenderStack.reserve(128); // render-stack per-frame size
+        //        m_nodeRenderStack.reserve(128); // render-stack per-frame size
 
         if (m_window == NULL) {
             showError("Error creating window");
@@ -489,7 +497,7 @@ public final class Application {
 
         m_textures.add(new Texture(m_whitePixelImageId, whiteSamplerId));
 
-//        loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
+        //        loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
         loadGltf("./glTF-Sample-Assets/Models/Cube/glTF/Cube.gltf");
 
         return true;
@@ -499,18 +507,60 @@ public final class Application {
         var running = true;
         @Cleanup val stack = MemoryStack.stackPush();
 
+        var prevTime = SDL_GetTicks();
         val event = SDL_Event.calloc(stack);
         while (running) {
+            val nowTime = SDL_GetTicks();
+            val deltaTime = (nowTime - prevTime) / 1000D;
+            prevTime = nowTime;
+
             while (SDL_PollEvent(event)) {
-                if (event.type() == SDL_EVENT_QUIT) {
-                    running = false;
-                    break;
-                } else if (event.type() == SDL_EVENT_WINDOW_RESIZED) {
-                    val windowData = event.window();
-                    m_width = windowData.data1();
-                    m_height = windowData.data2();
-                    break; // TODO: Should this be break?
+                switch (event.type()) {
+                    case SDL_EVENT_QUIT: {
+                        running = false;
+                    }
+                    case SDL_EVENT_WINDOW_RESIZED: {
+                        val windowData = event.window();
+                        m_width = windowData.data1();
+                        m_height = windowData.data2();
+                    }
                 }
+            }
+
+            // Handle basic cam movement
+            val speed = 1D;
+            val epsilon = 0.01D;
+            val pitchLimit = HALF_PI - epsilon;
+
+            final MemorySegment keys;
+            {
+                val buf = SDL_GetKeyboardState();
+                if (buf == null) {
+                    throw new IllegalStateException();
+                }
+                keys = MemorySegment.ofBuffer(buf);
+            }
+
+            if (keys.get(FFM.bool.layout(), SDL_SCANCODE_A)) {
+                m_camYaw += speed * deltaTime;
+            }
+            if (keys.get(FFM.bool.layout(), SDL_SCANCODE_D)) {
+                m_camYaw -= speed * deltaTime;
+            }
+            if (keys.get(FFM.bool.layout(), SDL_SCANCODE_W)) {
+                m_camDistance -= speed * deltaTime;
+                m_camDistance = Math.max(m_camDistance, epsilon);
+            }
+            if (keys.get(FFM.bool.layout(), SDL_SCANCODE_S)) {
+                m_camDistance += speed * deltaTime;
+            }
+            if (keys.get(FFM.bool.layout(), SDL_SCANCODE_UP)) {
+                m_camPitch += speed * deltaTime;
+                m_camPitch = Math.clamp(m_camPitch, -pitchLimit, pitchLimit);
+            }
+            if (keys.get(FFM.bool.layout(), SDL_SCANCODE_DOWN)) {
+                m_camPitch -= speed * deltaTime;
+                m_camPitch = Math.clamp(m_camPitch, -pitchLimit, pitchLimit);
             }
 
             render();

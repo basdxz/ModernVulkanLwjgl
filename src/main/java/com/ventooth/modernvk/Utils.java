@@ -8,6 +8,8 @@ import java.util.function.IntFunction;
 import java.util.function.Supplier;
 
 public final class Utils {
+    public static final double HALF_PI = Math.PI / 2D;
+
     private Utils() {
         throw new UnsupportedOperationException();
     }
