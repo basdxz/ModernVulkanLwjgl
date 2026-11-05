@@ -24,6 +24,7 @@ import org.lwjgl.util.vma.VmaAllocatorCreateInfo;
 import org.lwjgl.util.vma.VmaVulkanFunctions;
 import org.lwjgl.vulkan.VK;
 import org.lwjgl.vulkan.VkApplicationInfo;
+import org.lwjgl.vulkan.VkBufferCopy;
 import org.lwjgl.vulkan.VkBufferCreateInfo;
 import org.lwjgl.vulkan.VkBufferDeviceAddressInfo;
 import org.lwjgl.vulkan.VkBufferImageCopy;
@@ -36,6 +37,7 @@ import org.lwjgl.vulkan.VkDebugUtilsMessengerCallbackDataEXT;
 import org.lwjgl.vulkan.VkDebugUtilsMessengerCallbackEXT;
 import org.lwjgl.vulkan.VkDebugUtilsMessengerCreateInfoEXT;
 import org.lwjgl.vulkan.VkDependencyInfo;
+import org.lwjgl.vulkan.VkDescriptorImageInfo;
 import org.lwjgl.vulkan.VkDescriptorPoolCreateInfo;
 import org.lwjgl.vulkan.VkDescriptorPoolSize;
 import org.lwjgl.vulkan.VkDescriptorSetAllocateInfo;
@@ -89,6 +91,7 @@ import org.lwjgl.vulkan.VkSurfaceCapabilitiesKHR;
 import org.lwjgl.vulkan.VkSurfaceFormatKHR;
 import org.lwjgl.vulkan.VkSwapchainCreateInfoKHR;
 import org.lwjgl.vulkan.VkViewport;
+import org.lwjgl.vulkan.VkWriteDescriptorSet;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -199,8 +202,10 @@ import static org.lwjgl.vulkan.KHRSwapchain.vkQueuePresentKHR;
 import static org.lwjgl.vulkan.VK10.VK_ATTACHMENT_LOAD_OP_CLEAR;
 import static org.lwjgl.vulkan.VK10.VK_ATTACHMENT_STORE_OP_DONT_CARE;
 import static org.lwjgl.vulkan.VK10.VK_ATTACHMENT_STORE_OP_STORE;
+import static org.lwjgl.vulkan.VK10.VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
 import static org.lwjgl.vulkan.VK10.VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
 import static org.lwjgl.vulkan.VK10.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+import static org.lwjgl.vulkan.VK10.VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 import static org.lwjgl.vulkan.VK10.VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_A_BIT;
 import static org.lwjgl.vulkan.VK10.VK_COLOR_COMPONENT_B_BIT;
@@ -250,6 +255,7 @@ import static org.lwjgl.vulkan.VK10.vkAllocateCommandBuffers;
 import static org.lwjgl.vulkan.VK10.vkAllocateDescriptorSets;
 import static org.lwjgl.vulkan.VK10.vkBeginCommandBuffer;
 import static org.lwjgl.vulkan.VK10.vkCmdBindPipeline;
+import static org.lwjgl.vulkan.VK10.vkCmdCopyBuffer;
 import static org.lwjgl.vulkan.VK10.vkCmdCopyBufferToImage;
 import static org.lwjgl.vulkan.VK10.vkCmdDraw;
 import static org.lwjgl.vulkan.VK10.vkCmdSetScissor;
@@ -287,6 +293,7 @@ import static org.lwjgl.vulkan.VK10.vkGetPhysicalDeviceProperties;
 import static org.lwjgl.vulkan.VK10.vkQueueSubmit;
 import static org.lwjgl.vulkan.VK10.vkQueueWaitIdle;
 import static org.lwjgl.vulkan.VK10.vkResetCommandPool;
+import static org.lwjgl.vulkan.VK10.vkUpdateDescriptorSets;
 import static org.lwjgl.vulkan.VK11.vkGetPhysicalDeviceFeatures2;
 import static org.lwjgl.vulkan.VK11.vkGetPhysicalDeviceQueueFamilyProperties2;
 import static org.lwjgl.vulkan.VK12.VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
@@ -395,9 +402,9 @@ public final class Application {
 
     // Gpu resources
     private int m_whitePixelImageId = 0;
-    //	uint32_t m_vertexBufferId = 0;
-    //	uint32_t m_indexBufferId = 0;
-    //	uint32_t m_matBufferId = 0;
+    private int m_vertexBufferId = 0;
+    private int m_indexBufferId = 0;
+    private int m_matBufferId = 0;
     private final List<GPUImage> m_images = new ArrayList<>();
     private final List</*(VkSampler)*/Long> m_samplers = new ArrayList<>();
     private final List<Texture> m_textures = new ArrayList<>();
@@ -443,6 +450,7 @@ public final class Application {
 
     public boolean loadData() {
         assert m_device != null;
+        assert m_vmaAllocator != NULL;
 
         @Cleanup val stack = MemoryStack.stackPush();
 
@@ -500,6 +508,80 @@ public final class Application {
         //        loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
         loadGltf("./glTF-Sample-Assets/Models/Cube/glTF/Cube.gltf");
 
+        // Staging buffers for geo data
+        val vertexBufferStage = createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                             VertexBufferBytes,
+                                             true,
+                                             VMA_MEMORY_USAGE_AUTO);
+        if (vertexBufferStage.vkBuffer == NULL) {
+            showError("Error creating vertex staging buffer");
+            return false;
+        }
+        val indexBufferStage = createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                            IndexBufferBytes,
+                                            true,
+                                            VMA_MEMORY_USAGE_AUTO);
+        if (indexBufferStage.vkBuffer == NULL) {
+            showError("Error creating index staging buffer");
+            return false;
+        }
+        // Device-local buffers
+        val vertexBuffer = createBuffer(VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                        VertexBufferBytes,
+                                        false,
+                                        VMA_MEMORY_USAGE_AUTO);
+        if (vertexBuffer.vkBuffer == NULL) {
+            showError("Error creating vertex buffer");
+            return false;
+        }
+        m_vertexBufferId = addBuffer(vertexBuffer);
+        mapCopyBufferData(vertexBufferStage, 0, m_vertices.segment());
+
+        val indexBuffer = createBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                       IndexBufferBytes,
+                                       false,
+                                       VMA_MEMORY_USAGE_AUTO);
+        if (indexBuffer.vkBuffer == NULL) {
+            showError("Error creating index buffer");
+            return false;
+        }
+        m_indexBufferId = addBuffer(indexBuffer);
+        mapCopyBufferData(indexBufferStage, 0, m_indices);
+
+        // Copy staged geo data to VRAM
+        val geoCmdBuffer = startTransientCommandBuffer();
+        {
+            val buffCopyVerts = VkBufferCopy.calloc(1, stack)
+                                            .srcOffset(0L)
+                                            .dstOffset(0L)
+                                            .size(VertexBufferBytes);
+            vkCmdCopyBuffer(geoCmdBuffer, vertexBufferStage.vkBuffer, vertexBuffer.vkBuffer, buffCopyVerts);
+            val buffCopyIndices = VkBufferCopy.calloc(1, stack)
+                                              .srcOffset(0L)
+                                              .dstOffset(0L)
+                                              .size(IndexBufferBytes);
+            vkCmdCopyBuffer(geoCmdBuffer, indexBufferStage.vkBuffer, indexBuffer.vkBuffer, buffCopyIndices);
+        }
+        submitTransientCommandBuffer(geoCmdBuffer); // submit and wait
+
+        // Delete staging geo buffers
+        vmaDestroyBuffer(m_vmaAllocator, vertexBufferStage.vkBuffer, vertexBufferStage.allocation);
+        vmaDestroyBuffer(m_vmaAllocator, indexBufferStage.vkBuffer, indexBufferStage.allocation);
+
+        updateTextureDescriptors();
+
+        // Material buffer
+        val matDataBytes = m_materials.sizeof();
+        val matBuffer = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                     matDataBytes,
+                                     true,
+                                     VMA_MEMORY_USAGE_AUTO);
+        if (matBuffer.vkBuffer == NULL) {
+            showError("Error creating material buffer");
+            return false;
+        }
+        m_matBufferId = addBuffer(matBuffer);
+        mapCopyBufferData(matBuffer, 0, m_materials.segment());
         return true;
     }
 
@@ -1822,8 +1904,7 @@ public final class Application {
             val vkBufferPtr = stack.callocLong(1);
             val allocationPtr = stack.callocPointer(1);
             if (vmaCreateBuffer(m_vmaAllocator, buffInfo, allocInfo, vkBufferPtr, allocationPtr, null) != VK_SUCCESS) {
-                // C++ Example did: `return GPUBuffer {};`
-                throw new IllegalStateException();
+                return gpuBuff; // (gpuBuff.vkBuffer == NULL) -> Error
             }
             gpuBuff.vkBuffer = vkBufferPtr.get(0);
             gpuBuff.allocation = allocationPtr.get(0);
@@ -2051,6 +2132,40 @@ public final class Application {
         m_images.add(gpuImg);
         val imageId = m_images.size();
         return new Pair<>(imageId, stageBuff);
+    }
+
+    private void updateTextureDescriptors() {
+        assert m_device != null;
+
+        val numTextures = m_textures.size();
+
+        @Cleanup val arena = Arena.ofConfined();
+
+        // Create combined image & sampler descriptor writes for all textures
+        val imageDescriptorsSeg = arena.allocate((long) VkDescriptorImageInfo.SIZEOF * numTextures,
+                                                 VkDescriptorImageInfo.ALIGNOF);
+        val imageDescriptors = VkDescriptorImageInfo.create(imageDescriptorsSeg.address(), numTextures);
+        for (var i = 0; i < numTextures; i++) {
+            val texture = m_textures.get(i);
+            val sampler = m_samplers.get(texture.samplerId - 1);
+            val imageView = m_images.get(texture.imageId - 1).imageView;
+            //noinspection resource
+            imageDescriptors.get(i)
+                            .sampler(sampler)
+                            .imageView(imageView)
+                            .imageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+
+        val descSetWriteSeg = arena.allocate(VkWriteDescriptorSet.SIZEOF, VkWriteDescriptorSet.ALIGNOF);
+        val descSetWrite = VkWriteDescriptorSet.create(descSetWriteSeg.address(), 1)
+                                               .sType$Default()
+                                               .dstSet(m_globalDescSet)
+                                               .dstBinding(0)
+                                               .dstArrayElement(0)
+                                               .descriptorCount(numTextures)
+                                               .descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+                                               .pImageInfo(imageDescriptors);
+        vkUpdateDescriptorSets(m_device, descSetWrite, null);
     }
 
     private void render() {
