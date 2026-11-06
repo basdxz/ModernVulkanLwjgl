@@ -47,10 +47,10 @@ public final class Utils {
 
     public static void setMat4(Matrix4dc src, mat4 dst) {
         // @formatter:off
-        dst.m00((float) src.m00()).m10((float) src.m10()).m20((float) src.m20()).m30((float) src.m30())
-           .m01((float) src.m01()).m11((float) src.m11()).m21((float) src.m21()).m31((float) src.m31())
-           .m02((float) src.m02()).m12((float) src.m12()).m22((float) src.m22()).m32((float) src.m32())
-           .m03((float) src.m03()).m13((float) src.m13()).m23((float) src.m23()).m33((float) src.m33());
+        dst.m00((float) src.m00()).m01((float) src.m01()).m02((float) src.m02()).m03((float) src.m03())
+           .m10((float) src.m10()).m11((float) src.m11()).m12((float) src.m12()).m13((float) src.m13())
+           .m20((float) src.m20()).m21((float) src.m21()).m22((float) src.m22()).m23((float) src.m23())
+           .m30((float) src.m30()).m31((float) src.m31()).m32((float) src.m32()).m33((float) src.m33());
         // @formatter:on
     }
 }

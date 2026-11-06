@@ -104,53 +104,53 @@ public final class Structs {
 
     @FFMDefinition("""
             struct mat4 {
-                float m00, m10, m20, m30;
-                float m01, m11, m21, m31;
-                float m02, m12, m22, m32;
-                float m03, m13, m23, m33;
+                float m00, m01, m02, m03;
+                float m10, m11, m12, m13;
+                float m20, m21, m22, m23;
+                float m30, m31, m32, m33;
             }""")
     public interface mat4 {
         // @formatter:off
         StructBinder<mat4> $ = FFM.ffmStruct(mat4.class)
-            .m("m00", FFM.float32).m("m10", FFM.float32).m("m20", FFM.float32).m("m30", FFM.float32)
-            .m("m01", FFM.float32).m("m11", FFM.float32).m("m21", FFM.float32).m("m31", FFM.float32)
-            .m("m02", FFM.float32).m("m12", FFM.float32).m("m22", FFM.float32).m("m32", FFM.float32)
-            .m("m03", FFM.float32).m("m13", FFM.float32).m("m23", FFM.float32).m("m33", FFM.float32)
+            .m("m00", FFM.float32).m("m01", FFM.float32).m("m02", FFM.float32).m("m03", FFM.float32)
+            .m("m10", FFM.float32).m("m11", FFM.float32).m("m12", FFM.float32).m("m13", FFM.float32)
+            .m("m20", FFM.float32).m("m21", FFM.float32).m("m22", FFM.float32).m("m23", FFM.float32)
+            .m("m30", FFM.float32).m("m31", FFM.float32).m("m32", FFM.float32).m("m33", FFM.float32)
             .build();
 
         mat4    m00(float m00);
         float   m00();
-        mat4    m10(float m10);
-        float   m10();
-        mat4    m20(float m20);
-        float   m20();
-        mat4    m30(float m30);
-        float   m30();
-
         mat4    m01(float m01);
         float   m01();
-        mat4    m11(float m11);
-        float   m11();
-        mat4    m21(float m21);
-        float   m21();
-        mat4    m31(float m31);
-        float   m31();
-
         mat4    m02(float m02);
         float   m02();
-        mat4    m12(float m12);
-        float   m12();
-        mat4    m22(float m22);
-        float   m22();
-        mat4    m32(float m32);
-        float   m32();
-
         mat4    m03(float m03);
         float   m03();
+
+        mat4    m10(float m10);
+        float   m10();
+        mat4    m11(float m11);
+        float   m11();
+        mat4    m12(float m12);
+        float   m12();
         mat4    m13(float m13);
         float   m13();
-        mat4    m23(float m23);
+
+        mat4    m20(float m20);
+        float   m20();
+        mat4    m21(float m21);
+        float   m21();
+        mat4    m22(float m22);
+        float   m22();
+        mat4    m23(float m32);
         float   m23();
+
+        mat4    m30(float m30);
+        float   m30();
+        mat4    m31(float m31);
+        float   m31();
+        mat4    m32(float m32);
+        float   m32();
         mat4    m33(float m33);
         float   m33();
 

@@ -2270,7 +2270,7 @@ public final class Application {
         // Traverse entire scene and record MDI draw commands
 
         val camPosition = new Vector3d(Math.cos(m_camYaw) * Math.cos(m_camPitch),
-                                       Math.sin(m_camYaw) * Math.sin(m_camPitch),
+                                       Math.sin(m_camPitch),
                                        Math.sin(m_camYaw) * Math.cos(m_camPitch)).mul(m_camDistance);
 
         val aspectRatio = (double) m_width / m_height;
@@ -2305,8 +2305,6 @@ public final class Application {
             if (meshId != 0) {
                 val mesh = m_meshes.get(meshId - 1);
                 for (val subMesh : mesh.subMeshes) {
-                    drawIndex++;
-
                     // Indirect draw command
                     val indirectDrawPtr = res.indirectDrawPtr.get(drawIndex);
                     indirectDrawPtr.indexCount(subMesh.indexCount)
@@ -2320,6 +2318,8 @@ public final class Application {
                     Utils.setMat4(wvp, renderItemPtr.wvp());
                     Utils.setMat4(matWorld, renderItemPtr.worldMatrix());
                     renderItemPtr.materialIndex(subMesh.materialId - 1);
+
+                    drawIndex++;
                 }
             }
 
@@ -2448,7 +2448,7 @@ public final class Application {
             val viewports = VkViewport.calloc(1, stack);
             //noinspection resource
             viewports.get(0)
-                     .set(0F, 0F, m_swapchainWidth, m_swapchainHeight, 0F, 1F);
+                     .set(0F, m_swapchainHeight, m_swapchainWidth, -m_swapchainHeight, 0F, 1F);
             vkCmdSetViewport(res.commandBuffer, 0, viewports);
 
             // Set scissor state
@@ -2791,8 +2791,7 @@ public final class Application {
             }
             val color = Objects.requireNonNullElse(pbr.getBaseColorFactor(), pbr.defaultBaseColorFactor());
 
-            val materialId = m_matOffset++;
-            m_materials.apply(materialId, mat -> {
+            m_materials.apply(m_matOffset, mat -> {
                 mat.baseColor()
                    .x((float) color[0])
                    .y((float) color[1])
@@ -2800,7 +2799,8 @@ public final class Application {
                    .w((float) color[3]);
                 mat.textureIndex(textureIndex);
             });
-            materialIds[i] = materialId;
+            m_matOffset++;
+            materialIds[i] = m_matOffset;
         }
         return materialIds;
     }
@@ -2865,7 +2865,7 @@ public final class Application {
                         // Applies Default vertex values
                         // @formatter:off
                         dst.color().x(1F).y(1F).z(1F);
-                        dst.normal().x(0F).y(0F).z(0F);
+                        dst.normal().x(0F).y(1F).z(0F); // TODO: Bad normals break lighting :(
                         dst.uv().x(0F).y(0F);
                         // @formatter:on
                     }
