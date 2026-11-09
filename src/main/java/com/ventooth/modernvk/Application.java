@@ -514,8 +514,9 @@ public final class Application {
 
         m_textures.add(new Texture(m_whitePixelImageId, whiteSamplerId));
 
-//        loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
-        loadGltf("./glTF-Sample-Assets/Models/Cube/glTF/Cube.gltf");
+        loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
+        //        loadGltf("./glTF-Sample-Assets/Models/Cube/glTF/Cube.gltf");
+        //        loadGltf("./glTF-Sample-Assets/Models/AntiqueCamera/glTF/AntiqueCamera.gltf");
 
         // Staging buffers for geo data
         val vertexBufferStage = createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -614,6 +615,10 @@ public final class Application {
                         val windowData = event.window();
                         m_width = windowData.data1();
                         m_height = windowData.data2();
+
+                        if (running) { // Fixes crash from trying to re-create swapchain when the window is closing
+                            m_requireSwapchainRecreate = true;
+                        }
                     }
                 }
             }
@@ -2274,7 +2279,9 @@ public final class Application {
                                        Math.sin(m_camYaw) * Math.cos(m_camPitch)).mul(m_camDistance);
 
         val aspectRatio = (double) m_width / m_height;
-        final Matrix4dc matView = new Matrix4d().lookAt(camPosition, new Vector3d(0D, 0D, 0D), new Vector3d(0D, 1D, 0D));
+        final Matrix4dc matView = new Matrix4d().lookAt(camPosition,
+                                                        new Vector3d(0D, 0D, 0D),
+                                                        new Vector3d(0D, 1D, 0D));
         final Matrix4dc matProj = new Matrix4d().perspective(Math.toRadians(75D), aspectRatio, 0.01D, 1000D);
         final Matrix4dc matViewProj = matProj.mul(matView, new Matrix4d());
 
@@ -2862,11 +2869,13 @@ public final class Application {
                         throw new IllegalStateException();
                     }
 
+                    val accOffset = Objects.requireNonNullElseGet(acc.getByteOffset(), acc::defaultByteOffset);
                     val bufView = gltfBufferViews.get(acc.getBufferView());
                     val fullBuf = buffers[bufView.getBuffer()];
                     val slicedBuf = fullBuf.asSlice(Objects.requireNonNullElseGet(bufView.getByteOffset(),
-                                                                                  bufView::defaultByteOffset),
-                                                    bufView.getByteLength());
+                                                                                  bufView::defaultByteOffset) +
+                                                    accOffset, bufView.getByteLength() - accOffset);
+
                     val attrArray = new StructArray<>(vec3.$, slicedBuf);
 
                     for (var k = 0; k < count; k++) {
@@ -2901,11 +2910,12 @@ public final class Application {
                         throw new IllegalStateException();
                     }
 
+                    val accOffset = Objects.requireNonNullElseGet(acc.getByteOffset(), acc::defaultByteOffset);
                     val bufView = gltfBufferViews.get(acc.getBufferView());
                     val fullBuf = buffers[bufView.getBuffer()];
                     val slicedBuf = fullBuf.asSlice(Objects.requireNonNullElseGet(bufView.getByteOffset(),
-                                                                                  bufView::defaultByteOffset),
-                                                    bufView.getByteLength());
+                                                                                  bufView::defaultByteOffset) +
+                                                    accOffset, bufView.getByteLength() - accOffset);
                     val attrArray = new StructArray<>(vec3.$, slicedBuf);
 
                     for (var k = 0; k < count; k++) {
@@ -2933,11 +2943,12 @@ public final class Application {
                         throw new IllegalStateException();
                     }
 
+                    val accOffset = Objects.requireNonNullElseGet(acc.getByteOffset(), acc::defaultByteOffset);
                     val bufView = gltfBufferViews.get(acc.getBufferView());
                     val fullBuf = buffers[bufView.getBuffer()];
                     val slicedBuf = fullBuf.asSlice(Objects.requireNonNullElseGet(bufView.getByteOffset(),
-                                                                                  bufView::defaultByteOffset),
-                                                    bufView.getByteLength());
+                                                                                  bufView::defaultByteOffset) +
+                                                    accOffset, bufView.getByteLength() - accOffset);
 
                     if ("VEC3".equals(acc.getType())) {
                         val attrArray = new StructArray<>(vec3.$, slicedBuf);
@@ -2977,11 +2988,12 @@ public final class Application {
                         throw new IllegalStateException();
                     }
 
+                    val accOffset = Objects.requireNonNullElseGet(acc.getByteOffset(), acc::defaultByteOffset);
                     val bufView = gltfBufferViews.get(acc.getBufferView());
                     val fullBuf = buffers[bufView.getBuffer()];
                     val slicedBuf = fullBuf.asSlice(Objects.requireNonNullElseGet(bufView.getByteOffset(),
-                                                                                  bufView::defaultByteOffset),
-                                                    bufView.getByteLength());
+                                                                                  bufView::defaultByteOffset) +
+                                                    accOffset, bufView.getByteLength() - accOffset);
                     val attrArray = new StructArray<>(vec2.$, slicedBuf);
 
                     for (var k = 0; k < count; k++) {
@@ -3009,18 +3021,19 @@ public final class Application {
                     subMesh.indexStart = m_idxOffset;
                     subMesh.indexCount = count;
 
+                    val accOffset = Objects.requireNonNullElseGet(acc.getByteOffset(), acc::defaultByteOffset);
                     val bufView = gltfBufferViews.get(acc.getBufferView());
                     val fullBuf = buffers[bufView.getBuffer()];
                     val slicedBuf = fullBuf.asSlice(Objects.requireNonNullElseGet(bufView.getByteOffset(),
-                                                                                  bufView::defaultByteOffset),
-                                                    bufView.getByteLength());
+                                                                                  bufView::defaultByteOffset) +
+                                                    accOffset, bufView.getByteLength() - accOffset);
 
                     if (acc.getComponentType() == TG3_COMPONENT_TYPE_UNSIGNED_INT) {
                         MemorySegment.copy(slicedBuf, 0, m_indices, m_idxOffset, count);
                     } else {
                         for (var k = 0; k < count; k++) {
                             val index = slicedBuf.getAtIndex(FFM.uint16_t.layout(), k);
-                            m_indices.setAtIndex(FFM.uint32_t.layout(), k, index);
+                            m_indices.setAtIndex(FFM.uint32_t.layout(), m_idxOffset + k, index);
                         }
                     }
                 }
