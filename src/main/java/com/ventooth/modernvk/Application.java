@@ -245,7 +245,7 @@ import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_VIEW_TYPE_2D;
 import static org.lwjgl.vulkan.VK10.VK_INDEX_TYPE_UINT32;
 import static org.lwjgl.vulkan.VK10.VK_NULL_HANDLE;
-import static org.lwjgl.vulkan.VK10.VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+import static org.lwjgl.vulkan.VK10.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 import static org.lwjgl.vulkan.VK10.VK_PIPELINE_BIND_POINT_GRAPHICS;
 import static org.lwjgl.vulkan.VK10.VK_POLYGON_MODE_FILL;
 import static org.lwjgl.vulkan.VK10.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -1062,7 +1062,7 @@ public final class Application {
             // look through list and see if a dGPU exists
             for (val dev : list) {
                 vkGetPhysicalDeviceProperties(dev, props);
-                if (props.deviceType() == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
+                if (props.deviceType() == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
                     selectedDev = dev;
                     break;
                 }
@@ -2274,9 +2274,9 @@ public final class Application {
                                        Math.sin(m_camYaw) * Math.cos(m_camPitch)).mul(m_camDistance);
 
         val aspectRatio = (double) m_width / m_height;
-        val matView = new Matrix4d().lookAt(camPosition, new Vector3d(0D, 0D, 0D), new Vector3d(0D, 1D, 0D));
-        val matProj = new Matrix4d().perspective(Math.toRadians(75D), aspectRatio, 0.01D, 1000D);
-        val matViewProj = matProj.mul(matView, new Matrix4d());
+        final Matrix4dc matView = new Matrix4d().lookAt(camPosition, new Vector3d(0D, 0D, 0D), new Vector3d(0D, 1D, 0D));
+        final Matrix4dc matProj = new Matrix4d().perspective(Math.toRadians(75D), aspectRatio, 0.01D, 1000D);
+        final Matrix4dc matViewProj = matProj.mul(matView, new Matrix4d());
 
         // Push root nodes to render-stack
         m_nodeRenderStack.clear();
@@ -2311,7 +2311,7 @@ public final class Application {
                                    .instanceCount(1)
                                    .firstIndex(subMesh.indexStart)
                                    .vertexOffset(subMesh.vertexStart)
-                                   .firstIndex(drawIndex);
+                                   .firstInstance(drawIndex);
 
                     // Per render-item data
                     val renderItemPtr = res.renderItemPtr.get(drawIndex);
@@ -2629,6 +2629,9 @@ public final class Application {
         assert m_arena != null;
 
         val gltfImages = model.getImages();
+        if (gltfImages == null || gltfImages.isEmpty()) {
+            return new Image[0];
+        }
         val numImages = gltfImages.size();
         val images = new Image[numImages];
         for (var i = 0; i < numImages; i++) {
@@ -2713,6 +2716,10 @@ public final class Application {
         @Cleanup val stack = MemoryStack.stackPush();
 
         val gltfSamplers = model.getSamplers();
+        if (gltfSamplers == null || gltfSamplers.isEmpty()) {
+            return new int[0];
+        }
+
         val numSamplers = gltfSamplers.size();
         val samplerIds = new int[numSamplers];
 
@@ -2752,6 +2759,10 @@ public final class Application {
 
     private int[] loadTextures(GlTF model, int[] imageIds, int[] samplerIds) {
         val gltfTextures = model.getTextures();
+        if (gltfTextures == null || gltfTextures.isEmpty()) {
+            return new int[0];
+        }
+
         val numTextures = gltfTextures.size();
         assert m_textures.size() + numTextures <= MaxTextures : "Exceeding max texture count";
 
