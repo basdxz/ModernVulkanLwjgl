@@ -113,6 +113,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
+import static com.ventooth.modernvk.Camera.CameraType;
 import static com.ventooth.modernvk.GltfModel.TG3_COMPONENT_TYPE_FLOAT;
 import static com.ventooth.modernvk.GltfModel.TG3_COMPONENT_TYPE_UNSIGNED_INT;
 import static com.ventooth.modernvk.GltfModel.TG3_COMPONENT_TYPE_UNSIGNED_SHORT;
@@ -132,12 +133,15 @@ import static org.lwjgl.sdl.SDLInit.SDL_Quit;
 import static org.lwjgl.sdl.SDLKeyboard.SDL_GetKeyboardState;
 import static org.lwjgl.sdl.SDLMessageBox.SDL_MESSAGEBOX_ERROR;
 import static org.lwjgl.sdl.SDLMessageBox.SDL_ShowSimpleMessageBox;
+import static org.lwjgl.sdl.SDLMouse.SDL_GetWindowRelativeMouseMode;
 import static org.lwjgl.sdl.SDLMouse.SDL_SetWindowRelativeMouseMode;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_A;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_D;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_DOWN;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_ESCAPE;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_GRAVE;
+import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_LEFT;
+import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_RIGHT;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_S;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_UP;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_W;
@@ -438,13 +442,8 @@ public final class Application {
 
     // camera related
     private int m_cameraNodeId = 0;
-    private CameraType m_camType = CameraType.firstPerson;
-    private double m_camDistance = 3D;
-    private double m_camYaw = HALF_PI;
-    private double m_camPitch = 0D;
-    private final Vector3d m_camForward = new Vector3d();
-    private final Vector3d m_camRight = new Vector3d();
-    private final Vector3d m_camUp = new Vector3d();
+    private final Camera m_camera = new Camera();
+    private final Vector3d m_moveDirection = new Vector3d();
 
     private final Matrix4d m_matView = new Matrix4d();
     private final Matrix4d m_matProj = new Matrix4d();
@@ -539,16 +538,13 @@ public final class Application {
         //        loadGltf("./glTF-Sample-Assets/Models/AntiqueCamera/glTF/AntiqueCamera.gltf");
 
 
-        // set up a camera node
-        {
+        // fallback camera setup
+        if (m_cameraNodeId == 0) {
             val pair = m_nodeWorld.createNode();
             val camNode = pair.fst();
             m_cameraNodeId = pair.snd();
 
             camNode.setTranslation(new Vector3d(1D, 1.5D, 5D));
-            m_camUp.set(0D, 1D, 0D);
-            m_camForward.set(-1D, 0D, 0D);
-            m_camForward.cross(m_camUp, m_camRight);
         }
 
         // Staging buffers for geo data
@@ -660,20 +656,22 @@ public final class Application {
                     }
                     case SDL_EVENT_MOUSE_MOTION: {
                         val motionData = event.motion();
-                        // TODO: Tutorial didn't fix this yet?
-                        m_mouseXRel += motionData.xrel();
-                        m_mouseYRel += motionData.yrel();
+
+                        if (SDL_GetWindowRelativeMouseMode(m_window)) {
+                            m_mouseXRel += motionData.xrel();
+                            m_mouseYRel += motionData.yrel();
+                        }
                     }
                     case SDL_EVENT_KEY_UP: {
                         val keyData = event.key();
                         val scancode = keyData.scancode();
 
                         if (scancode == SDL_SCANCODE_GRAVE || scancode == SDL_SCANCODE_ESCAPE) {
-                            if (m_camType == CameraType.firstPerson) {
-                                m_camType = CameraType.orbit;
+                            if (m_camera.type == CameraType.firstPerson) {
+                                m_camera.type = CameraType.orbit;
                                 SDL_SetWindowRelativeMouseMode(m_window, false);
                             } else {
-                                m_camType = CameraType.firstPerson;
+                                m_camera.type = CameraType.firstPerson;
                                 SDL_SetWindowRelativeMouseMode(m_window, true);
                             }
                         }
@@ -695,47 +693,47 @@ public final class Application {
                 keys = MemorySegment.ofBuffer(buf);
             }
 
-            if (m_camType == CameraType.orbit) {
-                if (keys.get(FFM.bool.layout(), SDL_SCANCODE_A)) {
-                    m_camYaw += speed * deltaTime;
+            if (m_camera.type == CameraType.orbit) {
+                if (keys.get(FFM.bool.layout(), SDL_SCANCODE_LEFT)) {
+                    m_camera.yaw += speed * deltaTime;
                 }
-                if (keys.get(FFM.bool.layout(), SDL_SCANCODE_D)) {
-                    m_camYaw -= speed * deltaTime;
+                if (keys.get(FFM.bool.layout(), SDL_SCANCODE_RIGHT)) {
+                    m_camera.yaw -= speed * deltaTime;
                 }
                 if (keys.get(FFM.bool.layout(), SDL_SCANCODE_W)) {
-                    m_camDistance -= speed * deltaTime;
-                    m_camDistance = Math.max(m_camDistance, epsilon);
+                    m_camera.distance -= speed * deltaTime;
+                    m_camera.distance = Math.max(m_camera.distance, epsilon);
                 }
                 if (keys.get(FFM.bool.layout(), SDL_SCANCODE_S)) {
-                    m_camDistance += speed * deltaTime;
+                    m_camera.distance += speed * deltaTime;
                 }
                 if (keys.get(FFM.bool.layout(), SDL_SCANCODE_UP)) {
-                    m_camPitch += speed * deltaTime;
-                    m_camPitch = Math.clamp(m_camPitch, -pitchLimit, pitchLimit);
+                    m_camera.pitch += speed * deltaTime;
+                    m_camera.pitch = Math.clamp(m_camera.pitch, -pitchLimit, pitchLimit);
                 }
                 if (keys.get(FFM.bool.layout(), SDL_SCANCODE_DOWN)) {
-                    m_camPitch -= speed * deltaTime;
-                    m_camPitch = Math.clamp(m_camPitch, -pitchLimit, pitchLimit);
+                    m_camera.pitch -= speed * deltaTime;
+                    m_camera.pitch = Math.clamp(m_camera.pitch, -pitchLimit, pitchLimit);
                 }
-            } else if (m_camType == CameraType.firstPerson) {
+            } else if (m_camera.type == CameraType.firstPerson) {
                 val camNode = m_nodeWorld.getNode(m_cameraNodeId);
                 val translation = new Vector3d(camNode.getTranslation());
                 if (keys.get(FFM.bool.layout(), SDL_SCANCODE_A)) {
-                    translation.sub(new Vector3d(m_camRight).mul(speed * deltaTime));
+                    translation.sub(new Vector3d(m_camera.right).mul(speed * deltaTime));
                 }
                 if (keys.get(FFM.bool.layout(), SDL_SCANCODE_D)) {
-                    translation.add(new Vector3d(m_camRight).mul(speed * deltaTime));
+                    translation.add(new Vector3d(m_camera.right).mul(speed * deltaTime));
                 }
                 if (keys.get(FFM.bool.layout(), SDL_SCANCODE_W)) {
-                    translation.add(new Vector3d(m_camForward).mul(speed * deltaTime));
+                    translation.add(new Vector3d(m_moveDirection).mul(speed * deltaTime));
                 }
                 if (keys.get(FFM.bool.layout(), SDL_SCANCODE_S)) {
-                    translation.sub(new Vector3d(m_camForward).mul(speed * deltaTime));
+                    translation.sub(new Vector3d(m_moveDirection).mul(speed * deltaTime));
                 }
                 camNode.setTranslation(translation);
             }
 
-
+            updateViewMatrix();
             render();
         }
     }
@@ -2356,41 +2354,6 @@ public final class Application {
             assert renderCompleteSemaphore != NULL;
         }
 
-        // camera and view matrix
-        val camNode = m_nodeWorld.getNode(m_cameraNodeId);
-        val camPosition = new Vector3d(camNode.getTranslation());
-        if (m_camType == CameraType.orbit) {
-            camPosition.set(Math.cos(m_camYaw) * Math.cos(m_camPitch),
-                            Math.sin(m_camPitch),
-                            Math.sin(m_camYaw) * Math.cos(m_camPitch))
-                       .mul(m_camDistance);
-
-            m_matView.setLookAt(camPosition, new Vector3d(0D, 0D, 0D), new Vector3d(0D, 1D, 0D));
-        } else if (m_camType == CameraType.firstPerson) {
-            val is6DegFree = false;
-
-            val yAxisRot = new Quaterniond().fromAxisAngleRad(m_camUp,
-                                                              -Math.toRadians(m_mouseXRel * m_mouseSensitivity));
-
-            m_camForward.rotate(yAxisRot)
-                        .normalize();
-            //noinspection ConstantValue
-            m_camForward.cross(is6DegFree ? m_camUp : new Vector3d(0D, 1D, 0D), m_camRight)
-                        .normalize();
-
-            val xAxisRot = new Quaterniond().fromAxisAngleRad(m_camRight,
-                                                              -Math.toRadians(m_mouseYRel * m_mouseSensitivity));
-            m_camForward.rotate(xAxisRot);
-            m_camRight.cross(m_camForward, m_camUp)
-                      .normalize();
-
-            m_matView.setLookAt(camPosition, camPosition.add(m_camForward, new Vector3d()), m_camUp);
-
-            m_mouseXRel = 0;
-            m_mouseYRel = 0;
-        }
-        m_matProj.mul(m_matView, m_viewProjMatrix);
-
         // Push root nodes to render-stack
         m_nodeRenderStack.clear();
         var nodeId = m_rootNodeId;
@@ -3155,6 +3118,7 @@ public final class Application {
         assert m_nodeWorld != null;
 
         val gltfNodes = model.getNodes();
+        val gltfCameras = model.getCameras();
         val gltfNode = gltfNodes.get(nodeIndex);
 
         final Node node;
@@ -3189,9 +3153,36 @@ public final class Application {
             }
         }
 
-        val mesh = gltfNode.getMesh();
-        if (mesh != null) {
-            node.meshId = meshIds[mesh];
+        val gltfMeshIdx = gltfNode.getMesh();
+        val gltfCameraIdx = gltfNode.getCamera();
+        mesh_cam:
+        if (gltfMeshIdx != null) {
+            node.meshId = meshIds[gltfMeshIdx];
+        } else if (gltfCameraIdx != null) {
+            if (m_cameraNodeId != 0) {
+                // TODO: Support multiple camera objects
+                break mesh_cam;
+            }
+            val gltfCamera = gltfCameras.get(gltfCameraIdx);
+            val perspective = gltfCamera.getPerspective();
+            if (perspective == null) {
+                break mesh_cam;
+            }
+
+            m_camera.fovY = perspective.getYfov();
+            m_camera.nearPlane = perspective.getZnear();
+            m_camera.farPlane = perspective.getZfar();
+            m_cameraNodeId = nodeId;
+
+            val nodeRotation = node.getRotation();
+            m_camera.forward.set(0D, 0D, -1D)
+                            .rotate(nodeRotation)
+                            .normalize();
+            m_camera.right.set(1D, 0D, 0D)
+                          .rotate(nodeRotation)
+                          .normalize();
+            m_camera.up.set(m_camera.right)
+                       .cross(m_camera.forward);
         }
 
         if (prevSiblingId != 0) {
@@ -3219,6 +3210,52 @@ public final class Application {
     private void updateProjectionMatrix() {
         val aspectRatio = m_width / (double) m_height;
         m_matProj.perspective(Math.toRadians(85D), aspectRatio, 0.01F, 1000F);
+    }
+
+    private void updateViewMatrix() {
+        assert m_nodeWorld != null;
+
+        m_camera.yaw -= Math.toRadians(m_mouseXRel * m_mouseSensitivity);
+        m_camera.pitch -= Math.toRadians(m_mouseYRel * m_mouseSensitivity);
+        m_camera.pitch = Math.clamp(m_camera.pitch, -HALF_PI + 0.01F, HALF_PI - 0.01F);
+        m_mouseXRel = 0;
+        m_mouseYRel = 0;
+
+        // camera and view matrix
+        val camNode = m_nodeWorld.getNode(m_cameraNodeId);
+        val camPosition = new Vector3d(camNode.getTranslation());
+        if (m_camera.type == CameraType.orbit) {
+            camPosition.set(Math.cos(m_camera.yaw) * Math.cos(m_camera.pitch),
+                            Math.sin(m_camera.pitch),
+                            Math.sin(m_camera.yaw) * Math.cos(m_camera.pitch))
+                       .mul(m_camera.distance);
+            camNode.setTranslation(camPosition);
+            m_matView.setLookAt(camPosition, new Vector3d(0D, 0D, 0D), new Vector3d(0D, 1D, 0D));
+        } else if (m_camera.type == CameraType.firstPerson) {
+            val cameraQuat = new Quaterniond().rotateLocalX(m_camera.pitch)
+                                              .rotateLocalY(m_camera.yaw);
+            camNode.setRotation(cameraQuat);
+            val is6DegFree = false;
+            m_camera.forward.set(0D, 0D, -1D)
+                            .rotate(cameraQuat)
+                            .normalize();
+            //noinspection ConstantValue
+            m_camera.right.set(m_camera.forward)
+                          .cross(is6DegFree ? m_camera.up : new Vector3d(0D, 1D, 0D))
+                          .normalize();
+            m_camera.up.set(m_camera.right)
+                       .cross(m_camera.forward)
+                       .normalize();
+            m_matView.setLookAt(camPosition, new Vector3d(camPosition).add(m_camera.forward), m_camera.up);
+
+            val is6DegFree2 = true;
+            //noinspection ConstantValue
+            val movementQuat = new Quaterniond().rotateLocalX(is6DegFree2 ? m_camera.pitch : 0D)
+                                                .rotateLocalY(m_camera.yaw);
+            m_moveDirection.set(0D, 0D, -1D)
+                           .rotate(movementQuat);
+        }
+        m_matProj.mul(m_matView, m_viewProjMatrix);
     }
 
     @NoArgsConstructor
@@ -3274,10 +3311,5 @@ public final class Application {
         int indexStart = 0;
         int indexCount = 0;
         int materialId = 0;
-    }
-
-    enum CameraType {
-        orbit,
-        firstPerson
     }
 }
