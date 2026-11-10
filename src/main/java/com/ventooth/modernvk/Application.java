@@ -13,6 +13,7 @@ import org.joml.Matrix4d;
 import org.joml.Matrix4dc;
 import org.joml.Quaterniond;
 import org.joml.Vector3d;
+import org.joml.Vector3dc;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.sdl.SDL_Event;
@@ -121,6 +122,8 @@ import static com.ventooth.modernvk.Structs.vec2;
 import static com.ventooth.modernvk.Structs.vec4;
 import static com.ventooth.modernvk.Utils.HALF_PI;
 import static com.ventooth.modernvk.Utils.readTextFile;
+import static org.lwjgl.sdl.SDLEvents.SDL_EVENT_KEY_UP;
+import static org.lwjgl.sdl.SDLEvents.SDL_EVENT_MOUSE_MOTION;
 import static org.lwjgl.sdl.SDLEvents.SDL_EVENT_QUIT;
 import static org.lwjgl.sdl.SDLEvents.SDL_EVENT_WINDOW_RESIZED;
 import static org.lwjgl.sdl.SDLEvents.SDL_PollEvent;
@@ -130,9 +133,12 @@ import static org.lwjgl.sdl.SDLInit.SDL_Quit;
 import static org.lwjgl.sdl.SDLKeyboard.SDL_GetKeyboardState;
 import static org.lwjgl.sdl.SDLMessageBox.SDL_MESSAGEBOX_ERROR;
 import static org.lwjgl.sdl.SDLMessageBox.SDL_ShowSimpleMessageBox;
+import static org.lwjgl.sdl.SDLMouse.SDL_SetWindowRelativeMouseMode;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_A;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_D;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_DOWN;
+import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_ESCAPE;
+import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_GRAVE;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_S;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_UP;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_W;
@@ -245,7 +251,6 @@ import static org.lwjgl.vulkan.VK10.VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_VIEW_TYPE_2D;
 import static org.lwjgl.vulkan.VK10.VK_INDEX_TYPE_UINT32;
 import static org.lwjgl.vulkan.VK10.VK_NULL_HANDLE;
-import static org.lwjgl.vulkan.VK10.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 import static org.lwjgl.vulkan.VK10.VK_PIPELINE_BIND_POINT_GRAPHICS;
 import static org.lwjgl.vulkan.VK10.VK_POLYGON_MODE_FILL;
 import static org.lwjgl.vulkan.VK10.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -433,9 +438,23 @@ public final class Application {
     private final Deque<Pair<Node, Matrix4dc>> m_nodeRenderStack = new ArrayDeque<>(128);
 
     // camera related
+    private int m_cameraNodeId = 0;
+    private CameraType m_camType = CameraType.firstPerson;
     private double m_camDistance = 3D;
     private double m_camYaw = HALF_PI;
     private double m_camPitch = 0D;
+    private final Vector3d m_camForward = new Vector3d(0D, 0D, 1D);
+    private final Vector3d m_camRight = new Vector3d(1D, 0D, 0D);
+    private final Vector3dc m_camUp = new Vector3d(0D, 1, 0D);
+
+    private final Matrix4d m_matView = new Matrix4d();
+    private final Matrix4d m_matProj = new Matrix4d();
+    private final Matrix4d m_viewProjMatrix = new Matrix4d();
+
+    // mouse related
+    private double m_mouseXRel = 0D;
+    private double m_mouseYRel = 0D;
+    private double m_mouseSensitivity = 0.3D;
 
     private void showError(String errorMessage) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", errorMessage, m_window);
@@ -453,6 +472,7 @@ public final class Application {
             showError("Error creating window");
             return false;
         }
+        SDL_SetWindowRelativeMouseMode(m_window, true);
 
         return initializeVulkan();
     }
@@ -460,6 +480,7 @@ public final class Application {
     public boolean loadData() {
         assert m_device != null;
         assert m_vmaAllocator != NULL;
+        assert m_nodeWorld != null;
 
         @Cleanup val stack = MemoryStack.stackPush();
 
@@ -517,6 +538,16 @@ public final class Application {
         loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
         //        loadGltf("./glTF-Sample-Assets/Models/Cube/glTF/Cube.gltf");
         //        loadGltf("./glTF-Sample-Assets/Models/AntiqueCamera/glTF/AntiqueCamera.gltf");
+
+
+        // set up a camera node
+        {
+            val pair = m_nodeWorld.createNode();
+            val camNode = pair.fst();
+            val camNodeId = pair.snd();
+            camNode.setTranslation(new Vector3d(0D, 4D, 0D));
+            m_cameraNodeId = camNodeId;
+        }
 
         // Staging buffers for geo data
         val vertexBufferStage = createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -596,6 +627,10 @@ public final class Application {
     }
 
     public void run() {
+        assert m_nodeWorld != null;
+        assert m_cameraNodeId != 0 : "Camera node must be initialized";
+        updateProjectionMatrix();
+
         var running = true;
         @Cleanup val stack = MemoryStack.stackPush();
 
@@ -615,9 +650,30 @@ public final class Application {
                         val windowData = event.window();
                         m_width = windowData.data1();
                         m_height = windowData.data2();
+                        updateProjectionMatrix();
 
                         if (running) { // Fixes crash from trying to re-create swapchain when the window is closing
                             m_requireSwapchainRecreate = true;
+                        }
+                    }
+                    case SDL_EVENT_MOUSE_MOTION: {
+                        val motionData = event.motion();
+                        // TODO: Tutorial didn't fix this yet?
+                        m_mouseXRel += motionData.xrel();
+                        m_mouseYRel += motionData.yrel();
+                    }
+                    case SDL_EVENT_KEY_UP: {
+                        val keyData = event.key();
+                        val scancode = keyData.scancode();
+
+                        if (scancode == SDL_SCANCODE_GRAVE || scancode == SDL_SCANCODE_ESCAPE) {
+                            if (m_camType == CameraType.firstPerson) {
+                                m_camType = CameraType.orbit;
+                                SDL_SetWindowRelativeMouseMode(m_window, false);
+                            } else {
+                                m_camType = CameraType.firstPerson;
+                                SDL_SetWindowRelativeMouseMode(m_window, true);
+                            }
                         }
                     }
                 }
@@ -637,27 +693,46 @@ public final class Application {
                 keys = MemorySegment.ofBuffer(buf);
             }
 
-            if (keys.get(FFM.bool.layout(), SDL_SCANCODE_A)) {
-                m_camYaw += speed * deltaTime;
+            if (m_camType == CameraType.orbit) {
+                if (keys.get(FFM.bool.layout(), SDL_SCANCODE_A)) {
+                    m_camYaw += speed * deltaTime;
+                }
+                if (keys.get(FFM.bool.layout(), SDL_SCANCODE_D)) {
+                    m_camYaw -= speed * deltaTime;
+                }
+                if (keys.get(FFM.bool.layout(), SDL_SCANCODE_W)) {
+                    m_camDistance -= speed * deltaTime;
+                    m_camDistance = Math.max(m_camDistance, epsilon);
+                }
+                if (keys.get(FFM.bool.layout(), SDL_SCANCODE_S)) {
+                    m_camDistance += speed * deltaTime;
+                }
+                if (keys.get(FFM.bool.layout(), SDL_SCANCODE_UP)) {
+                    m_camPitch += speed * deltaTime;
+                    m_camPitch = Math.clamp(m_camPitch, -pitchLimit, pitchLimit);
+                }
+                if (keys.get(FFM.bool.layout(), SDL_SCANCODE_DOWN)) {
+                    m_camPitch -= speed * deltaTime;
+                    m_camPitch = Math.clamp(m_camPitch, -pitchLimit, pitchLimit);
+                }
+            } else if (m_camType == CameraType.firstPerson) {
+                val camNode = m_nodeWorld.getNode(m_cameraNodeId);
+                val translation = new Vector3d(camNode.getTranslation());
+                if (keys.get(FFM.bool.layout(), SDL_SCANCODE_A)) {
+                    translation.sub(new Vector3d(m_camRight).mul(speed * deltaTime));
+                }
+                if (keys.get(FFM.bool.layout(), SDL_SCANCODE_D)) {
+                    translation.add(new Vector3d(m_camRight).mul(speed * deltaTime));
+                }
+                if (keys.get(FFM.bool.layout(), SDL_SCANCODE_W)) {
+                    translation.add(new Vector3d(m_camForward).mul(speed * deltaTime));
+                }
+                if (keys.get(FFM.bool.layout(), SDL_SCANCODE_S)) {
+                    translation.sub(new Vector3d(m_camForward).mul(speed * deltaTime));
+                }
+                camNode.setTranslation(translation);
             }
-            if (keys.get(FFM.bool.layout(), SDL_SCANCODE_D)) {
-                m_camYaw -= speed * deltaTime;
-            }
-            if (keys.get(FFM.bool.layout(), SDL_SCANCODE_W)) {
-                m_camDistance -= speed * deltaTime;
-                m_camDistance = Math.max(m_camDistance, epsilon);
-            }
-            if (keys.get(FFM.bool.layout(), SDL_SCANCODE_S)) {
-                m_camDistance += speed * deltaTime;
-            }
-            if (keys.get(FFM.bool.layout(), SDL_SCANCODE_UP)) {
-                m_camPitch += speed * deltaTime;
-                m_camPitch = Math.clamp(m_camPitch, -pitchLimit, pitchLimit);
-            }
-            if (keys.get(FFM.bool.layout(), SDL_SCANCODE_DOWN)) {
-                m_camPitch -= speed * deltaTime;
-                m_camPitch = Math.clamp(m_camPitch, -pitchLimit, pitchLimit);
-            }
+
 
             render();
         }
@@ -1073,10 +1148,10 @@ public final class Application {
                     break;
                 }
 
-//                if (props.deviceType() == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-//                    selectedDev = dev;
-//                    break;
-//                }
+                //                if (props.deviceType() == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+                //                    selectedDev = dev;
+                //                    break;
+                //                }
             }
 
             m_physicalDevice = selectedDev;
@@ -1864,12 +1939,13 @@ public final class Application {
     private boolean createIndirectDrawBuffers() {
         assert m_vmaAllocator != NULL;
         assert m_frameResources != null;
+        assert m_nodeWorld != null;
 
         @Cleanup val stack = MemoryStack.stackPush();
 
         val indBuffPtr = stack.callocPointer(1);
         val riBuffPtr = stack.callocPointer(1);
-        val maxNodes = 1024; // TODO: m_nodeWorld.maxNodes()
+        val maxNodes = m_nodeWorld.maxNodes();
         for (val res : m_frameResources) {
             // Indirect drawing buffer
             val indirectBuffByteSize = maxNodes * VkDrawIndexedIndirectCommand.SIZEOF;
@@ -2278,18 +2354,34 @@ public final class Application {
             assert renderCompleteSemaphore != NULL;
         }
 
-        // Traverse entire scene and record MDI draw commands
+        // camera and view matrix
+        val camNode = m_nodeWorld.getNode(m_cameraNodeId);
+        val camPosition = new Vector3d(camNode.getTranslation());
+        if (m_camType == CameraType.orbit) {
+            camPosition.set(Math.cos(m_camYaw) * Math.cos(m_camPitch),
+                            Math.sin(m_camPitch),
+                            Math.sin(m_camYaw) * Math.cos(m_camPitch))
+                       .mul(m_camDistance);
 
-        val camPosition = new Vector3d(Math.cos(m_camYaw) * Math.cos(m_camPitch),
-                                       Math.sin(m_camPitch),
-                                       Math.sin(m_camYaw) * Math.cos(m_camPitch)).mul(m_camDistance);
+            m_matView.setLookAt(camPosition, m_camForward, m_camUp);
+        } else if (m_camType == CameraType.firstPerson) {
+            val yAxisRot = new Quaterniond().fromAxisAngleRad(m_camUp,
+                                                              -Math.toRadians(m_mouseXRel * m_mouseSensitivity));
 
-        val aspectRatio = (double) m_width / m_height;
-        final Matrix4dc matView = new Matrix4d().lookAt(camPosition,
-                                                        new Vector3d(0D, 0D, 0D),
-                                                        new Vector3d(0D, 1D, 0D));
-        final Matrix4dc matProj = new Matrix4d().perspective(Math.toRadians(75D), aspectRatio, 0.01D, 1000D);
-        final Matrix4dc matViewProj = matProj.mul(matView, new Matrix4d());
+            m_camForward.rotate(yAxisRot);
+            m_camForward.cross(m_camUp, m_camRight)
+                        .normalize();
+
+            val xAxisRot = new Quaterniond().fromAxisAngleRad(m_camRight,
+                                                              -Math.toRadians(m_mouseYRel * m_mouseSensitivity));
+            m_camForward.rotate(xAxisRot);
+
+            m_matView.setLookAt(camPosition, camPosition.add(m_camForward, new Vector3d()), m_camUp);
+
+            m_mouseXRel = 0;
+            m_mouseYRel = 0;
+        }
+        m_matProj.mul(m_matView, m_viewProjMatrix);
 
         // Push root nodes to render-stack
         m_nodeRenderStack.clear();
@@ -2311,7 +2403,7 @@ public final class Application {
             }
 
             val matWorld = parentTransform.mul(node.getTransform(), new Matrix4d());
-            val wvp = matViewProj.mul(matWorld, new Matrix4d());
+            val wvp = m_viewProjMatrix.mul(matWorld, new Matrix4d());
 
             // Draw the associated mesh
             val meshId = node.meshId;
@@ -3116,6 +3208,11 @@ public final class Application {
         return nodeId;
     }
 
+    private void updateProjectionMatrix() {
+        val aspectRatio = m_width / (double) m_height;
+        m_matProj.perspective(Math.toRadians(75D), aspectRatio, 0.01F, 1000F);
+    }
+
     @NoArgsConstructor
     static final class GPUImage {
         /*(VkImage)*/ long image = NULL;
@@ -3169,5 +3266,10 @@ public final class Application {
         int indexStart = 0;
         int indexCount = 0;
         int materialId = 0;
+    }
+
+    enum CameraType {
+        orbit,
+        firstPerson
     }
 }
