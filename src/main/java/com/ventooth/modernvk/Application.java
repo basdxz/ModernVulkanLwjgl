@@ -455,6 +455,7 @@ public final class Application {
     // lights
     private @Nullable StructArray<Light> m_lights;
     private int m_numLights = 0;
+    private int m_numPointLights = 0;
     private int m_lightBufferId = 0;
 
     // camera related
@@ -2444,7 +2445,7 @@ public final class Application {
                     drawIndex++;
                 }
             } else if (lightId != 0) {
-                val lightPos = new Vector3d(node.getTranslation()).mulPosition(parentTransform);
+                val lightPos = new Vector3d().mulPosition(matWorld);
                 m_lights.get(lightId - 1)
                         .position()
                         .x((float) lightPos.x)
@@ -3175,9 +3176,28 @@ public final class Application {
     private int[] loadLights(DefaultGltfModel model) {
         assert m_lights != null;
 
-        val gltfExtensions = model.getExtensionModels();
-        if (!(gltfExtensions.get("KHR_lights_punctual") instanceof LightsPunctualModel gltfLights)) {
-            return new int[0];
+        final List<Map<String, Object>> gltfLightsRaw;
+        final LightsPunctualModel gltfLights;
+        {
+            val extensions = model.getExtensions();
+            if (extensions == null) {
+                return new int[0];
+            }
+            if (extensions.get("KHR_lights_punctual") instanceof Map<?, ?> v0) {
+                //noinspection unchecked
+                gltfLightsRaw = ((Map<String, List<Map<String, Object>>>) (v0)).get("lights");
+            } else {
+                return new int[0];
+            }
+            val extensionModels = model.getExtensionModels();
+            if (extensionModels == null) {
+                return new int[0];
+            }
+            if (extensionModels.get("KHR_lights_punctual") instanceof LightsPunctualModel v1) {
+                gltfLights = v1;
+            } else {
+                return new int[0];
+            }
         }
 
         val gltfLightList = gltfLights.getLightModels();
@@ -3213,8 +3233,13 @@ public final class Application {
             } else {
                 light.intensity(1F);
             }
+            light.range(100F);
 
             lightIds[i] = m_numLights;
+
+            if ("point".equals(gltfLightsRaw.get(i).get("type"))) {
+                m_numPointLights++;
+            }
         }
         return lightIds;
     }

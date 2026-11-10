@@ -238,6 +238,7 @@ public final class Structs {
             	vec3 position;
             	vec3 color;
             	float intensity;
+            	float range;
             }""")
     public interface Light {
         // @formatter:off
@@ -245,6 +246,7 @@ public final class Structs {
                                       .m("position", vec3.$)
                                       .m("color", vec3.$)
                                       .m("intensity", FFM.float32)
+                                      .m("range", FFM.float32)
                                       .build();
 
         Light   position(vec3 position);
@@ -255,6 +257,9 @@ public final class Structs {
 
         Light   intensity(float intensity);
         float   intensity();
+
+        Light   range(float range);
+        float   range();
         // @formatter:on
     }
 
