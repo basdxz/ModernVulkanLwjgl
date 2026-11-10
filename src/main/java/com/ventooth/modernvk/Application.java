@@ -6,7 +6,10 @@ import com.ventooth.modernvk.Structs.Material;
 import com.ventooth.modernvk.Structs.RenderItem;
 import com.ventooth.modernvk.Structs.vec3;
 import de.javagl.jgltf.impl.v2.GlTF;
+import de.javagl.jgltf.model.impl.DefaultGltfModel;
+import de.javagl.jgltf.model.io.v2.GltfAssetV2;
 import de.javagl.jgltf.model.io.v2.GltfReaderV2;
+import de.javagl.jgltf.model.v2.GltfModelCreatorV2;
 import lombok.Cleanup;
 import lombok.NoArgsConstructor;
 import lombok.val;
@@ -2666,6 +2669,8 @@ public final class Application {
     }
 
     private void loadGltf(String fileName) {
+        val modelArena = Arena.ofConfined();
+
         val filePath = Paths.get(fileName);
         val fileDir = filePath.getParent();
 
@@ -2677,10 +2682,27 @@ public final class Application {
         IO.println(" ** Loading GLTF: %s".formatted(fileName));
         // load and parse GLTF
 
-        final GlTF model;
+        final GlTF gltf; // TODO: Replace usages of the raw GLTF with the model
+        val buffers = new MemorySegment[1];
+        final DefaultGltfModel model;
         try (val is = Files.newInputStream(filePath)) {
-            val reader = new GltfReaderV2();
-            model = reader.read(is);
+            gltf = new GltfReaderV2().read(is);
+
+            final ByteBuffer binaryData;
+            val gltfBuffer = gltf.getBuffers()
+                                 .getFirst();
+            val bufferPath = fileDir.resolve(gltfBuffer.getUri());
+            try (val fc = FileChannel.open(bufferPath, StandardOpenOption.READ)) {
+                buffers[0] = fc.map(FileChannel.MapMode.READ_ONLY, 0, gltfBuffer.getByteLength(), modelArena);
+                binaryData = buffers[0].asByteBuffer();
+            } catch (Exception e) {
+                IO.println("Error parsing glTF file");
+                //noinspection CallToPrintStackTrace
+                e.printStackTrace();
+                return;
+            }
+
+            model = GltfModelCreatorV2.create(new GltfAssetV2(gltf, binaryData));
         } catch (Exception e) {
             IO.println("Error parsing glTF file");
             //noinspection CallToPrintStackTrace
@@ -2690,45 +2712,22 @@ public final class Application {
 
         final int[] imageIds;
         try (val arena = Arena.ofConfined()) { // frees image memory after uploading to VRAM
-            val images = loadImages(arena, model, fileDir); // load images into RAM
+            val images = loadImages(arena, gltf, fileDir); // load images into RAM
             imageIds = uploadImages(images); // upload images to VRAM
         }
 
-        val samplerIds = loadSamplers(model); // samplers required for shaders
-        val textureIds = loadTextures(model, imageIds, samplerIds); // image/sampler combinations
-        val materialIds = loadMaterials(model, textureIds); // materials reference textureIds
+        val samplerIds = loadSamplers(gltf); // samplers required for shaders
+        val textureIds = loadTextures(gltf, imageIds, samplerIds); // image/sampler combinations
+        val materialIds = loadMaterials(gltf, textureIds); // materials reference textureIds
+        val meshIds = loadMeshes(gltf, materialIds, buffers); // meshes/submeshes reference materials
+        val lightIds = loadLights(gltf);
 
-        final int[] meshIds;
-        try (val arena = Arena.ofConfined()) {
-            val gltfBuffers = model.getBuffers();
-            val numBuffers = gltfBuffers.size();
-
-            // Pre-map all the buffers and confine them to the scoped arena
-            val buffers = new MemorySegment[numBuffers];
-            for (var i = 0; i < numBuffers; i++) {
-                val gltfBuffer = gltfBuffers.get(i);
-                val bufferPath = fileDir.resolve(gltfBuffer.getUri());
-                try (val fc = FileChannel.open(bufferPath, StandardOpenOption.READ)) {
-                    buffers[i] = fc.map(FileChannel.MapMode.READ_ONLY, 0, gltfBuffer.getByteLength(), arena);
-                } catch (Exception e) {
-                    IO.println("Error parsing glTF file");
-                    //noinspection CallToPrintStackTrace
-                    e.printStackTrace();
-                    return;
-                }
-            }
-
-            meshIds = loadMeshes(model, materialIds, buffers); // meshes/submeshes reference materials
-        }
-
-        loadLights(model);
-
-        val scenes = model.getScenes();
-        val rootScene = scenes.get(Objects.requireNonNullElse(model.getScene(), 0));
+        val scenes = gltf.getScenes();
+        val rootScene = scenes.get(Objects.requireNonNullElse(gltf.getScene(), 0));
         val sceneNodes = rootScene.getNodes();
 
         for (val nodeIndex : sceneNodes) {
-            val nodeId = importNode(model, nodeIndex, 0, m_lastRootNodeId, meshIds);
+            val nodeId = importNode(gltf, nodeIndex, 0, m_lastRootNodeId, meshIds);
             if (m_rootNodeId == 0) {
                 // first root node
                 m_rootNodeId = nodeId;
