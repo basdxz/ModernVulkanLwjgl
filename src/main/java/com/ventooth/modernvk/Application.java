@@ -1067,10 +1067,16 @@ public final class Application {
             // look through list and see if a dGPU exists
             for (val dev : list) {
                 vkGetPhysicalDeviceProperties(dev, props);
-                if (props.deviceType() == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+                // Select desired GPU by name :)
+                if ("AMD Radeon RX 9070 XT (RADV GFX1201)".equals(props.deviceNameString())) {
                     selectedDev = dev;
                     break;
                 }
+
+//                if (props.deviceType() == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+//                    selectedDev = dev;
+//                    break;
+//                }
             }
 
             m_physicalDevice = selectedDev;

@@ -64,7 +64,7 @@ public final class Node {
         // TODO: Might be broken :(
         transform.getTranslation(m_translation);
         transform.getNormalizedRotation(m_rotation);
-        transform.getTranslation(m_scale);
+        transform.getScale(m_scale);
 
         m_transform.set(transform);
         m_dirty = false;
