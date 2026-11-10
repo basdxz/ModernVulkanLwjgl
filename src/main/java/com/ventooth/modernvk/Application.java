@@ -13,7 +13,6 @@ import org.joml.Matrix4d;
 import org.joml.Matrix4dc;
 import org.joml.Quaterniond;
 import org.joml.Vector3d;
-import org.joml.Vector3dc;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.sdl.SDL_Event;
@@ -443,9 +442,9 @@ public final class Application {
     private double m_camDistance = 3D;
     private double m_camYaw = HALF_PI;
     private double m_camPitch = 0D;
-    private final Vector3d m_camForward = new Vector3d(0D, 0D, 1D);
-    private final Vector3d m_camRight = new Vector3d(1D, 0D, 0D);
-    private final Vector3dc m_camUp = new Vector3d(0D, 1, 0D);
+    private final Vector3d m_camForward = new Vector3d();
+    private final Vector3d m_camRight = new Vector3d();
+    private final Vector3d m_camUp = new Vector3d();
 
     private final Matrix4d m_matView = new Matrix4d();
     private final Matrix4d m_matProj = new Matrix4d();
@@ -544,9 +543,12 @@ public final class Application {
         {
             val pair = m_nodeWorld.createNode();
             val camNode = pair.fst();
-            val camNodeId = pair.snd();
-            camNode.setTranslation(new Vector3d(0D, 4D, 0D));
-            m_cameraNodeId = camNodeId;
+            m_cameraNodeId = pair.snd();
+
+            camNode.setTranslation(new Vector3d(1D, 1.5D, 5D));
+            m_camUp.set(0D, 1D, 0D);
+            m_camForward.set(-1D, 0D, 0D);
+            m_camForward.cross(m_camUp, m_camRight);
         }
 
         // Staging buffers for geo data
@@ -680,7 +682,7 @@ public final class Application {
             }
 
             // Handle basic cam movement
-            val speed = 1D;
+            val speed = 3D;
             val epsilon = 0.01D;
             val pitchLimit = HALF_PI - epsilon;
 
@@ -2363,18 +2365,24 @@ public final class Application {
                             Math.sin(m_camYaw) * Math.cos(m_camPitch))
                        .mul(m_camDistance);
 
-            m_matView.setLookAt(camPosition, m_camForward, m_camUp);
+            m_matView.setLookAt(camPosition, new Vector3d(0D, 0D, 0D), new Vector3d(0D, 1D, 0D));
         } else if (m_camType == CameraType.firstPerson) {
+            val is6DegFree = false;
+
             val yAxisRot = new Quaterniond().fromAxisAngleRad(m_camUp,
                                                               -Math.toRadians(m_mouseXRel * m_mouseSensitivity));
 
-            m_camForward.rotate(yAxisRot);
-            m_camForward.cross(m_camUp, m_camRight)
+            m_camForward.rotate(yAxisRot)
+                        .normalize();
+            //noinspection ConstantValue
+            m_camForward.cross(is6DegFree ? m_camUp : new Vector3d(0D, 1D, 0D), m_camRight)
                         .normalize();
 
             val xAxisRot = new Quaterniond().fromAxisAngleRad(m_camRight,
                                                               -Math.toRadians(m_mouseYRel * m_mouseSensitivity));
             m_camForward.rotate(xAxisRot);
+            m_camRight.cross(m_camForward, m_camUp)
+                      .normalize();
 
             m_matView.setLookAt(camPosition, camPosition.add(m_camForward, new Vector3d()), m_camUp);
 
@@ -3210,7 +3218,7 @@ public final class Application {
 
     private void updateProjectionMatrix() {
         val aspectRatio = m_width / (double) m_height;
-        m_matProj.perspective(Math.toRadians(75D), aspectRatio, 0.01F, 1000F);
+        m_matProj.perspective(Math.toRadians(85D), aspectRatio, 0.01F, 1000F);
     }
 
     @NoArgsConstructor
