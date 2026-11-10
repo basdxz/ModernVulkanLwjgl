@@ -533,9 +533,10 @@ public final class Application {
 
         m_textures.add(new Texture(m_whitePixelImageId, whiteSamplerId));
 
-        loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
+//        loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
         //        loadGltf("./glTF-Sample-Assets/Models/Cube/glTF/Cube.gltf");
         //        loadGltf("./glTF-Sample-Assets/Models/AntiqueCamera/glTF/AntiqueCamera.gltf");
+        loadGltf("./modular-demo/modular-demo.gltf");
 
 
         // fallback camera setup
