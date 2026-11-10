@@ -9,6 +9,7 @@ import de.javagl.jgltf.impl.v2.GlTF;
 import de.javagl.jgltf.model.impl.DefaultGltfModel;
 import de.javagl.jgltf.model.io.v2.GltfAssetV2;
 import de.javagl.jgltf.model.io.v2.GltfReaderV2;
+import de.javagl.jgltf.model.khr.lights_punctual.LightsPunctualModel;
 import de.javagl.jgltf.model.v2.GltfModelCreatorV2;
 import lombok.Cleanup;
 import lombok.NoArgsConstructor;
@@ -114,6 +115,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.IntStream;
@@ -452,6 +454,7 @@ public final class Application {
 
     // lights
     private @Nullable StructArray<Light> m_lights;
+    private int m_numLights = 0;
     private int m_lightBufferId = 0;
 
     // camera related
@@ -501,6 +504,7 @@ public final class Application {
         m_indices = FFM.uint32_t.allocateSegment(m_arena, MaxNumIndices);
 
         m_materials = Material.$.allocate(m_arena, MaxMaterials);
+        m_lights = Light.$.allocate(m_arena, MaxLights);
 
         // Fallback 1x1 white texture base color texture (0-index in tex array)
         val whitePixelData = FFM.uint32_t.allocateSegment(m_arena, 1);
@@ -637,11 +641,11 @@ public final class Application {
         mapCopyBufferData(matBuffer, 0, m_materials.segment());
 
 
-        // lights buffer
-        //        Light light1{ .position = glm::vec3(0, 5, 0), .color = glm::vec3(1, 1, 1), .intensity = 10.0f };
-        //uint32_t light1Id =
-        //const size_t lightDataBytes =
-
+        val lightsBuffer = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                        m_lights.sizeof(),
+                                        true,
+                                        VMA_MEMORY_USAGE_AUTO);
+        m_lightBufferId = addBuffer(lightsBuffer);
         return true;
     }
 
@@ -2318,6 +2322,7 @@ public final class Application {
         assert m_swapchainImageViews != null;
         assert m_renderCompleteSemaphores != null;
         assert m_nodeWorld != null;
+        assert m_lights != null;
 
         @Cleanup val stack = MemoryStack.stackPush();
 
@@ -2418,6 +2423,7 @@ public final class Application {
 
             // Draw the associated mesh
             val meshId = node.meshId;
+            val lightId = node.lightId;
             if (meshId != 0) {
                 val mesh = m_meshes.get(meshId - 1);
                 for (val subMesh : mesh.subMeshes) {
@@ -2437,6 +2443,13 @@ public final class Application {
 
                     drawIndex++;
                 }
+            } else if (lightId != 0) {
+                val lightPos = new Vector3d(node.getTranslation()).mulPosition(parentTransform);
+                m_lights.get(lightId - 1)
+                        .position()
+                        .x((float) lightPos.x)
+                        .y((float) lightPos.y)
+                        .z((float) lightPos.z);
             }
 
             // Child nodes for processing
@@ -2537,25 +2550,32 @@ public final class Application {
                                 stack.longs(m_globalDescSet),
                                 null);
 
+        val vertBuffer = m_buffers.get(m_vertexBufferId - 1);
+        val materialBuffer = m_buffers.get(m_matBufferId - 1);
+        val renderItemBuffer = res.renderItemBuffer;
+        val idxBuffer = m_buffers.get(m_indexBufferId - 1);
+        val lightsBuffer = m_buffers.get(m_lightBufferId - 1);
+
         // Push frame constants
         try (val segStack = SegmentStack.stackPush()) {
             val frameConsts = FrameConstants.$.allocate(segStack);
             val buf = FrameConstants.$.asSegment(frameConsts)
                                       .asByteBuffer();
 
-            val vertBuffer = m_buffers.get(m_vertexBufferId - 1);
-            val materialBuffer = m_buffers.get(m_matBufferId - 1);
-            val renderItemBuffer = res.renderItemBuffer;
             frameConsts.vertexBufferAddress(vertBuffer.deviceAddress)
                        .materialBufferAddress(materialBuffer.deviceAddress)
-                       .renderItemsAddress(renderItemBuffer.deviceAddress);
+                       .renderItemsAddress(renderItemBuffer.deviceAddress)
+                       .lightsBufferAddress(lightsBuffer.deviceAddress);
 
             val flags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
             vkCmdPushConstants(res.commandBuffer, m_pipelineLayout, flags, 0, buf);
         }
 
-        val idxBuffer = m_buffers.get(m_indexBufferId - 1);
+        // Update index buffer
         vkCmdBindIndexBuffer(res.commandBuffer, idxBuffer.vkBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+        // update light buffer
+        mapCopyBufferData(lightsBuffer, 0, m_lights.segment());
 
         // Begin dynamic rendering
         vkCmdBeginRendering(res.commandBuffer, renderingInfo);
@@ -2720,14 +2740,14 @@ public final class Application {
         val textureIds = loadTextures(gltf, imageIds, samplerIds); // image/sampler combinations
         val materialIds = loadMaterials(gltf, textureIds); // materials reference textureIds
         val meshIds = loadMeshes(gltf, materialIds, buffers); // meshes/submeshes reference materials
-        val lightIds = loadLights(gltf);
+        val lightIds = loadLights(model);
 
         val scenes = gltf.getScenes();
         val rootScene = scenes.get(Objects.requireNonNullElse(gltf.getScene(), 0));
         val sceneNodes = rootScene.getNodes();
 
         for (val nodeIndex : sceneNodes) {
-            val nodeId = importNode(gltf, nodeIndex, 0, m_lastRootNodeId, meshIds);
+            val nodeId = importNode(gltf, model, nodeIndex, 0, m_lastRootNodeId, meshIds, lightIds);
             if (m_rootNodeId == 0) {
                 // first root node
                 m_rootNodeId = nodeId;
@@ -3152,64 +3172,64 @@ public final class Application {
         return meshIds;
     }
 
-    private int[] loadLights(GlTF model) {
-        val gltfExts = model.getExtensions();
-        val ext = gltfExts.get("KHR_lights_punctual");
-        if (ext == null) {
+    private int[] loadLights(DefaultGltfModel model) {
+        assert m_lights != null;
+
+        val gltfExtensions = model.getExtensionModels();
+        if (!(gltfExtensions.get("KHR_lights_punctual") instanceof LightsPunctualModel gltfLights)) {
             return new int[0];
         }
 
-        // scene lights
-        //	for (int i = 0; i < model.ext.extensions_count; ++i)
-        //	{
-        //		const tg3_extension &ext = model.ext.extensions[i];
-        //		if (strcmp(ext.name.data, "KHR_lights_punctual") == 0)
-        //		{
-        //			const tg3_value &lightsObj = ext.value;
-        //			const tg3_value &lightsArray = lightsObj.object_data->value;
-        //			const int lightCount = lightsObj.object_data->value.array_count;
-        //			for (int li = 0; li < lightCount; ++li)
-        //			{
-        //				const tg3_value &tg3Light = lightsArray.array_data[li];
-        //				glm::vec3 color;
-        //				float intensity = 0;
-        //
-        //				// read light details
-        //				for (int oi = 0; oi < tg3Light.object_count; ++oi)
-        //				{
-        //					const tg3_kv_pair &pair = tg3Light.object_data[oi];
-        //					if (strcmp(pair.key.data, "color") == 0)
-        //					{
-        //						const tg3_value &colorVal = pair.value;
-        //						const tg3_value *colorArr = colorVal.array_data;
-        //						for (int ci = 0; ci < colorVal.array_count; ++ci)
-        //						{
-        //							color[ci] = colorArr[ci].type == TG3_VALUE_REAL ? colorArr[ci].real_val : colorArr[ci].int_val;
-        //						};
-        //					}
-        //					else if (strcmp(pair.key.data, "intensity") == 0)
-        //					{
-        //						intensity = pair.value.real_val;
-        //					}
-        //				}
-        //				m_lights.push_back(Light{
-        //					.color = color,
-        //					.intensity = intensity
-        //					});
-        //				lightIds.push_back(m_lights.size());
-        //			}
-        //		}
-        //	}
-        //	return lightIds;
+        val gltfLightList = gltfLights.getLightModels();
+        val numLights = gltfLightList.size();
+        val lightIds = new int[numLights];
 
-        return null;
+        for (var i = 0; i < numLights; i++) {
+            val gltfLight = gltfLightList.get(i);
+            val light = m_lights.get(m_numLights++);
+
+            // Later set based on the parent
+            light.position()
+                 .x(0F)
+                 .y(0F)
+                 .z(0F);
+
+            val gltfColor = gltfLight.getColor();
+            if (gltfColor != null) {
+                light.color()
+                     .x((float) gltfColor[0])
+                     .y((float) gltfColor[1])
+                     .z((float) gltfColor[2]);
+            } else {
+                light.color()
+                     .x(1F)
+                     .y(1F)
+                     .z(1F);
+            }
+
+            val gltfIntensity = gltfLight.getIntensity();
+            if (gltfIntensity != null) {
+                light.intensity(gltfIntensity.floatValue());
+            } else {
+                light.intensity(1F);
+            }
+
+            lightIds[i] = m_numLights;
+        }
+        return lightIds;
     }
 
-    private int importNode(GlTF model, int nodeIndex, int parentId, int prevSiblingId, int[] meshIds) {
+    private int importNode(GlTF gltf,
+                           DefaultGltfModel model,
+                           int nodeIndex,
+                           int parentId,
+                           int prevSiblingId,
+                           int[] meshIds,
+                           int[] lightIds) {
         assert m_nodeWorld != null;
 
-        val gltfNodes = model.getNodes();
-        val gltfCameras = model.getCameras();
+        val gltfNodes = gltf.getNodes();
+        val gltfCameras = gltf.getCameras();
         val gltfNode = gltfNodes.get(nodeIndex);
 
         final Node node;
@@ -3246,18 +3266,21 @@ public final class Application {
 
         val gltfMeshIdx = gltfNode.getMesh();
         val gltfCameraIdx = gltfNode.getCamera();
-        mesh_cam:
+        val gltfExtensions = model.getNodeModel(nodeIndex)
+                                  .getExtensions();
+
+        special:
         if (gltfMeshIdx != null) {
             node.meshId = meshIds[gltfMeshIdx];
         } else if (gltfCameraIdx != null) {
             if (m_cameraNodeId != 0) {
                 // TODO: Support multiple camera objects
-                break mesh_cam;
+                break special;
             }
             val gltfCamera = gltfCameras.get(gltfCameraIdx);
             val perspective = gltfCamera.getPerspective();
             if (perspective == null) {
-                break mesh_cam;
+                break special;
             }
 
             m_camera.fovY = perspective.getYfov();
@@ -3276,6 +3299,10 @@ public final class Application {
                        .cross(m_camera.forward);
             m_camera.yaw = Math.atan2(-m_camera.forward.x, -m_camera.forward.z);
             m_camera.pitch = Math.asin(m_camera.forward.y);
+        } else if (gltfExtensions != null) {
+            if (gltfExtensions.get("KHR_lights_punctual") instanceof Map<?, ?> lightExt) {
+                node.lightId = lightIds[(int) lightExt.get("light")];
+            }
         }
 
         if (prevSiblingId != 0) {
@@ -3288,7 +3315,7 @@ public final class Application {
             var lastChildId = 0;
 
             for (val childIndex : children) {
-                lastChildId = importNode(model, childIndex, nodeId, lastChildId, meshIds);
+                lastChildId = importNode(gltf, model, childIndex, nodeId, lastChildId, meshIds, lightIds);
 
                 // set parent's first child id field
                 if (node.firstChildId != 0) {

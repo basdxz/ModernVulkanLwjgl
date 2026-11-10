@@ -17,6 +17,7 @@ public final class Node {
     private boolean m_dirty = true;
 
     public int meshId = 0;
+    public int lightId = 0;
     public int parentId = 0;
     public int nextSiblingId = 0;
     public int firstChildId = 0;
