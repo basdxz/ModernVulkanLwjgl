@@ -1,7 +1,6 @@
 package com.ventooth.modernvk;
 
 import lombok.val;
-import org.joml.Matrix2d;
 import org.joml.Matrix4dc;
 
 import java.io.IOException;
@@ -34,10 +33,10 @@ public final class Utils {
     }
 
     public static <T> T[] initArray(int size, Supplier<? extends T> constructor, IntFunction<T[]> generator) {
-        return initArray(size, _ -> constructor.get(), generator);
+        return initArrayIndexed(size, _ -> constructor.get(), generator);
     }
 
-    public static <T> T[] initArray(int size, IntFunction<? extends T> constructor, IntFunction<T[]> generator) {
+    public static <T> T[] initArrayIndexed(int size, IntFunction<? extends T> constructor, IntFunction<T[]> generator) {
         val ret = generator.apply(size);
         for (var i = 0; i < size; i++) {
             ret[i] = constructor.apply(i);

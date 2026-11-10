@@ -18,6 +18,7 @@ import org.joml.Matrix3d;
 import org.joml.Matrix4d;
 import org.joml.Matrix4dc;
 import org.joml.Quaterniond;
+import org.joml.Vector2d;
 import org.joml.Vector3d;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.PointerBuffer;
@@ -147,6 +148,7 @@ import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_D;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_DOWN;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_ESCAPE;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_F11;
+import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_F9;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_GRAVE;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_LEFT;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_RIGHT;
@@ -362,6 +364,8 @@ public final class Application {
     private static final int MaxFramesInFlight = 2;
     private static final String shaderEntryPoint = "main";
 
+    private static final int MaxMouseDeltas = 5;
+
     private static final long VertexBufferBytes = 128 * 1024 * 1024; // 128MB vertex budget
     private static final long IndexBufferBytes = 64 * 1024 * 1024; // 64MB index budget
     private static final int MaxNumVertices;
@@ -469,7 +473,10 @@ public final class Application {
     private final Matrix4d m_viewProjMatrix = new Matrix4d();
 
     // mouse related
+    private boolean m_useMouseAverage = false;
     private final double m_mouseSensitivity = 0.3D;
+    private final Vector2d[] m_mouseDeltas = Utils.initArray(MaxMouseDeltas, Vector2d::new, Vector2d[]::new);
+    private int m_mouseDeltaIndex = 0;
 
     private void showError(String errorMessage) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", errorMessage, m_window);
@@ -481,7 +488,6 @@ public final class Application {
 
         // setup renderer specifics here
         m_nodeWorld = new NodeWorld(1024); // maximum node-world size
-        //        m_nodeRenderStack.reserve(128); // render-stack per-frame size
 
         if (m_window == NULL) {
             showError("Error creating window");
@@ -664,6 +670,7 @@ public final class Application {
             val nowTime = SDL_GetTicks();
             val deltaTime = (nowTime - prevTime) / 1000D;
             prevTime = nowTime;
+            val mouseRel = new Vector2d();
 
             while (SDL_PollEvent(event)) {
                 switch (event.type()) {
@@ -684,9 +691,8 @@ public final class Application {
                         val motionData = event.motion();
 
                         if (SDL_GetWindowRelativeMouseMode(m_window)) {
-                            m_camera.yaw += Math.toRadians(-motionData.xrel() * m_mouseSensitivity);
-                            m_camera.pitch += Math.toRadians(-motionData.yrel() * m_mouseSensitivity);
-                            m_camera.pitch = Math.clamp(m_camera.pitch, -HALF_PI + 0.01D, HALF_PI - 0.01D);
+                            mouseRel.x += motionData.xrel();
+                            mouseRel.y += motionData.yrel();
                         }
                     }
                     case SDL_EVENT_KEY_UP: {
@@ -700,15 +706,40 @@ public final class Application {
                         } else if (scancode == SDL_SCANCODE_F11) {
                             SDL_SetWindowFullscreen(m_window,
                                                     (SDL_GetWindowFlags(m_window) & SDL_WINDOW_FULLSCREEN) == 0);
+                        } else if (scancode == SDL_SCANCODE_F9) {
+                            m_useMouseAverage = !m_useMouseAverage;
                         }
                     }
                 }
             }
 
+            mouseRel.mul(-m_mouseSensitivity);
+
             // Handle basic cam movement
             val speed = 3D;
             val epsilon = 0.01D;
             val pitchLimit = HALF_PI - epsilon;
+
+            // write current frames mouse delta into history
+            m_mouseDeltas[m_mouseDeltaIndex].set(mouseRel);
+            m_mouseDeltaIndex = (m_mouseDeltaIndex + 1) % MaxMouseDeltas;
+
+            // get average delta and use that for yaw/pitch
+            val finalMouseRel = new Vector2d();
+            if (m_useMouseAverage) {
+                for (val mouseDelta : m_mouseDeltas) {
+                    finalMouseRel.add(mouseDelta);
+                }
+                finalMouseRel.div(MaxMouseDeltas);
+            } else {
+                finalMouseRel.set(mouseRel);
+            }
+
+            // update cam look angles
+            m_camera.yaw += Math.toRadians(finalMouseRel.x);
+            m_camera.pitch += Math.toRadians(finalMouseRel.y);
+            m_camera.pitch = Math.clamp(m_camera.pitch, -HALF_PI + 0.01D, HALF_PI - 0.01D);
+
             val cameraQuat = new Quaterniond().rotateLocalX(m_camera.pitch)
                                               .rotateLocalY(m_camera.yaw);
             val camNode = m_nodeWorld.getNode(m_cameraNodeId);
@@ -3237,7 +3268,8 @@ public final class Application {
 
             lightIds[i] = m_numLights;
 
-            if ("point".equals(gltfLightsRaw.get(i).get("type"))) {
+            if ("point".equals(gltfLightsRaw.get(i)
+                                            .get("type"))) {
                 m_numPointLights++;
             }
         }
