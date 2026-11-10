@@ -1,6 +1,7 @@
 package com.ventooth.modernvk;
 
 import com.ventooth.modernvk.Structs.FrameConstants;
+import com.ventooth.modernvk.Structs.Light;
 import com.ventooth.modernvk.Structs.Material;
 import com.ventooth.modernvk.Structs.RenderItem;
 import com.ventooth.modernvk.Structs.vec3;
@@ -364,8 +365,8 @@ public final class Application {
     static {
         val vertexSize = Vertex.$.layout()
                                  .byteSize();
-        val indexSize = Vertex.$.layout()
-                                .byteSize();
+        val indexSize = FFM.uint32_t.layout()
+                                    .byteSize();
 
         MaxNumVertices = (int) (VertexBufferBytes / vertexSize);
         MaxNumIndices = (int) (IndexBufferBytes / indexSize);
@@ -447,7 +448,8 @@ public final class Application {
     private final Deque<Pair<Node, Matrix4dc>> m_nodeRenderStack = new ArrayDeque<>(128);
 
     // lights
-//    std::vector<Light> m_lights;
+    private @Nullable StructArray<Light> m_lights;
+    private int m_lightBufferId = 0;
 
     // camera related
     private int m_cameraNodeId = 0;
@@ -633,7 +635,7 @@ public final class Application {
 
 
         // lights buffer
-//        Light light1{ .position = glm::vec3(0, 5, 0), .color = glm::vec3(1, 1, 1), .intensity = 10.0f };
+        //        Light light1{ .position = glm::vec3(0, 5, 0), .color = glm::vec3(1, 1, 1), .intensity = 10.0f };
         //uint32_t light1Id =
         //const size_t lightDataBytes =
 
@@ -687,7 +689,7 @@ public final class Application {
                             m_flyMode = !m_flyMode;
                         } else if (scancode == SDL_SCANCODE_ESCAPE) {
                             SDL_SetWindowRelativeMouseMode(m_window, !SDL_GetWindowRelativeMouseMode(m_window));
-                        }else if (scancode == SDL_SCANCODE_F11) {
+                        } else if (scancode == SDL_SCANCODE_F11) {
                             SDL_SetWindowFullscreen(m_window,
                                                     (SDL_GetWindowFlags(m_window) & SDL_WINDOW_FULLSCREEN) == 0);
                         }
@@ -2719,6 +2721,8 @@ public final class Application {
             meshIds = loadMeshes(model, materialIds, buffers); // meshes/submeshes reference materials
         }
 
+        loadLights(model);
+
         val scenes = model.getScenes();
         val rootScene = scenes.get(Objects.requireNonNullElse(model.getScene(), 0));
         val sceneNodes = rootScene.getNodes();
@@ -3147,6 +3151,59 @@ public final class Application {
             meshIds[i] = m_meshes.size();
         }
         return meshIds;
+    }
+
+    private int[] loadLights(GlTF model) {
+        val gltfExts = model.getExtensions();
+        val ext = gltfExts.get("KHR_lights_punctual");
+        if (ext == null) {
+            return new int[0];
+        }
+
+        // scene lights
+        //	for (int i = 0; i < model.ext.extensions_count; ++i)
+        //	{
+        //		const tg3_extension &ext = model.ext.extensions[i];
+        //		if (strcmp(ext.name.data, "KHR_lights_punctual") == 0)
+        //		{
+        //			const tg3_value &lightsObj = ext.value;
+        //			const tg3_value &lightsArray = lightsObj.object_data->value;
+        //			const int lightCount = lightsObj.object_data->value.array_count;
+        //			for (int li = 0; li < lightCount; ++li)
+        //			{
+        //				const tg3_value &tg3Light = lightsArray.array_data[li];
+        //				glm::vec3 color;
+        //				float intensity = 0;
+        //
+        //				// read light details
+        //				for (int oi = 0; oi < tg3Light.object_count; ++oi)
+        //				{
+        //					const tg3_kv_pair &pair = tg3Light.object_data[oi];
+        //					if (strcmp(pair.key.data, "color") == 0)
+        //					{
+        //						const tg3_value &colorVal = pair.value;
+        //						const tg3_value *colorArr = colorVal.array_data;
+        //						for (int ci = 0; ci < colorVal.array_count; ++ci)
+        //						{
+        //							color[ci] = colorArr[ci].type == TG3_VALUE_REAL ? colorArr[ci].real_val : colorArr[ci].int_val;
+        //						};
+        //					}
+        //					else if (strcmp(pair.key.data, "intensity") == 0)
+        //					{
+        //						intensity = pair.value.real_val;
+        //					}
+        //				}
+        //				m_lights.push_back(Light{
+        //					.color = color,
+        //					.intensity = intensity
+        //					});
+        //				lightIds.push_back(m_lights.size());
+        //			}
+        //		}
+        //	}
+        //	return lightIds;
+
+        return null;
     }
 
     private int importNode(GlTF model, int nodeIndex, int parentId, int prevSiblingId, int[] meshIds) {
