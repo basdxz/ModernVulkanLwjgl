@@ -456,9 +456,7 @@ public final class Application {
     private final Matrix4d m_viewProjMatrix = new Matrix4d();
 
     // mouse related
-    private double m_mouseXRel = 0D;
-    private double m_mouseYRel = 0D;
-    private double m_mouseSensitivity = 0.3D;
+    private final double m_mouseSensitivity = 0.3D;
 
     private void showError(String errorMessage) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", errorMessage, m_window);
@@ -665,8 +663,9 @@ public final class Application {
                         val motionData = event.motion();
 
                         if (SDL_GetWindowRelativeMouseMode(m_window)) {
-                            m_mouseXRel += motionData.xrel();
-                            m_mouseYRel += motionData.yrel();
+                            m_camera.yaw += Math.toRadians(-motionData.xrel() * m_mouseSensitivity);
+                            m_camera.pitch += Math.toRadians(-motionData.yrel() * m_mouseSensitivity);
+                            m_camera.pitch = Math.clamp(m_camera.pitch, -HALF_PI + 0.01D, HALF_PI - 0.01D);
                         }
                     }
                     case SDL_EVENT_KEY_UP: {
@@ -689,6 +688,10 @@ public final class Application {
             val speed = 3D;
             val epsilon = 0.01D;
             val pitchLimit = HALF_PI - epsilon;
+            val cameraQuat = new Quaterniond().rotateLocalX(m_camera.pitch)
+                                              .rotateLocalY(m_camera.yaw);
+            val camNode = m_nodeWorld.getNode(m_cameraNodeId);
+            camNode.setRotation(cameraQuat);
 
             final MemorySegment keys;
             {
@@ -722,8 +725,23 @@ public final class Application {
                     m_camera.pitch = Math.clamp(m_camera.pitch, -pitchLimit, pitchLimit);
                 }
             } else if (m_camera.type == CameraType.firstPerson) {
-                val camNode = m_nodeWorld.getNode(m_cameraNodeId);
                 val translation = new Vector3d(camNode.getTranslation());
+
+                // update the basis vectors
+                val rotMat = cameraQuat.get(new Matrix3d());
+                rotMat.getColumn(0, m_camera.right); // X basis vector
+                rotMat.getColumn(1, m_camera.up); // Y basis vector
+                rotMat.getColumn(2, m_camera.forward); // Z basis vector
+
+                if (!m_flyMode) {
+                    m_forwardMoveDir.set(-Math.sin(m_camera.yaw), 0D, -Math.cos(m_camera.yaw));
+                } else {
+                    val cosPitch = Math.cos(m_camera.pitch);
+                    m_forwardMoveDir.set(-Math.sin(m_camera.yaw) * cosPitch,
+                                         Math.sin(m_camera.pitch),
+                                         -Math.cos(m_camera.yaw) * cosPitch);
+                }
+
                 if (keys.get(FFM.bool.layout(), SDL_SCANCODE_A)) {
                     translation.sub(new Vector3d(m_camera.right).mul(speed * deltaTime));
                 }
@@ -3223,12 +3241,6 @@ public final class Application {
     private void updateViewMatrix() {
         assert m_nodeWorld != null;
 
-        m_camera.yaw += Math.toRadians(-m_mouseXRel * m_mouseSensitivity);
-        m_camera.pitch += Math.toRadians(-m_mouseYRel * m_mouseSensitivity);
-        m_camera.pitch = Math.clamp(m_camera.pitch, -HALF_PI + 0.01F, HALF_PI - 0.01F);
-        m_mouseXRel = 0;
-        m_mouseYRel = 0;
-
         // camera and view matrix
         val camNode = m_nodeWorld.getNode(m_cameraNodeId);
         if (m_camera.type == CameraType.orbit) {
@@ -3242,10 +3254,7 @@ public final class Application {
             m_matView.setLookAt(camPosition, new Vector3d(0D, 0D, 0D), new Vector3d(0D, 1D, 0D));
         } else if (m_camera.type == CameraType.firstPerson) {
             val camPosition = camNode.getTranslation();
-            val cameraQuat = new Quaterniond().rotateLocalX(m_camera.pitch)
-                                              .rotateLocalY(m_camera.yaw);
-            camNode.setRotation(cameraQuat);
-
+            val cameraQuat = camNode.getRotation();
 
             // view matrix is the inverse of the camera node's transformation matrix
             // m_matView = glm::inverse(camNode.getTransform()); // this is a full matrix inverse calc
@@ -3255,21 +3264,6 @@ public final class Application {
             m_matView.set(cameraQuat.conjugate(new Quaterniond())
                                     .get(new Matrix4d())
                                     .translate(new Vector3d(camPosition).mul(-1D)));
-
-            val rotMat = cameraQuat.get(new Matrix3d());
-
-            rotMat.getColumn(0, m_camera.right); // X basis vector
-            rotMat.getColumn(1, m_camera.up); // Y basis vector
-            rotMat.getColumn(2, m_camera.forward); // Z basis vector
-
-            if (!m_flyMode) {
-                m_forwardMoveDir.set(-Math.sin(m_camera.yaw), 0D, -Math.cos(m_camera.yaw));
-            } else {
-                val cosPitch = Math.cos(m_camera.pitch);
-                m_forwardMoveDir.set(-Math.sin(m_camera.yaw) * cosPitch,
-                                     Math.sin(m_camera.pitch),
-                                     -Math.cos(m_camera.yaw) * cosPitch);
-            }
         }
         m_matProj.mul(m_matView, m_viewProjMatrix);
     }
