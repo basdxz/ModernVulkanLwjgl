@@ -24,6 +24,7 @@ public final class Structs {
         FFM.ffmConfig(RenderItem.class, cfg);
         FFM.ffmConfig(Vertex.class, cfg);
         FFM.ffmConfig(Material.class, cfg);
+        FFM.ffmConfig(Light.class, cfg);
         FFM.ffmConfig(FrameConstants.class, cfg);
     }
 
@@ -142,7 +143,7 @@ public final class Structs {
         float   m21();
         mat4    m22(float m22);
         float   m22();
-        mat4    m23(float m32);
+        mat4    m23(float m23);
         float   m23();
 
         mat4    m30(float m30);
@@ -184,8 +185,10 @@ public final class Structs {
 
     @FFMDefinition("""
             struct Vertex {
-                float x;
-                float y;
+                vec3 position;
+                vec3 color;
+                vec3 normal;
+                vec2 uv;
             }""")
     public interface Vertex {
         // @formatter:off
@@ -231,10 +234,36 @@ public final class Structs {
     }
 
     @FFMDefinition("""
+            struct Light {
+            	vec3 position;
+            	vec3 color;
+            	float intensity;
+            }""")
+    public interface Light {
+        // @formatter:off
+        StructBinder<Light> $ = FFM.ffmStruct(Light.class)
+                                      .m("position", vec3.$)
+                                      .m("color", vec3.$)
+                                      .m("intensity", FFM.float32)
+                                      .build();
+
+        Light   position(vec3 position);
+        vec3    position();
+
+        Light   color(vec3 color);
+        vec3    color();
+
+        Light   intensity(float intensity);
+        float   intensity();
+        // @formatter:on
+    }
+
+    @FFMDefinition("""
             struct FrameConstants {
             	uint64_t vertexBufferAddress;
             	uint64_t materialBufferAddress;
             	uint64_t renderItemsAddress;
+            	uint64_t lightsBufferAddress;
             }""")
     public interface FrameConstants {
         // @formatter:off
@@ -242,6 +271,7 @@ public final class Structs {
             .m("vertexBufferAddress",   FFM.uint64_t)
             .m("materialBufferAddress", FFM.uint64_t)
             .m("renderItemsAddress",    FFM.uint64_t)
+            .m("lightsBufferAddress",    FFM.uint64_t)
             .build();
 
         FrameConstants  vertexBufferAddress(long vertexBufferAddress);
@@ -252,6 +282,9 @@ public final class Structs {
 
         FrameConstants  renderItemsAddress(long renderItemsAddress);
         long            renderItemsAddress();
+
+        FrameConstants  lightsBufferAddress(long lightsBufferAddress);
+        long            lightsBufferAddress();
         // @formatter:on
     }
 }

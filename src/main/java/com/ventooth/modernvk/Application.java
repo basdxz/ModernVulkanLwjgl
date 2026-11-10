@@ -352,6 +352,7 @@ public final class Application {
     private static final int depthFormat = VK_FORMAT_D32_SFLOAT;
     private static final int MaxTextures = 1024;
     private static final int MaxMaterials = 1024;
+    private static final int MaxLights = 32;
     private static final int MaxFramesInFlight = 2;
     private static final String shaderEntryPoint = "main";
 
@@ -444,6 +445,9 @@ public final class Application {
     private int m_rootNodeId = 0;
     private int m_lastRootNodeId = 0;
     private final Deque<Pair<Node, Matrix4dc>> m_nodeRenderStack = new ArrayDeque<>(128);
+
+    // lights
+//    std::vector<Light> m_lights;
 
     // camera related
     private int m_cameraNodeId = 0;
@@ -626,6 +630,13 @@ public final class Application {
         }
         m_matBufferId = addBuffer(matBuffer);
         mapCopyBufferData(matBuffer, 0, m_materials.segment());
+
+
+        // lights buffer
+//        Light light1{ .position = glm::vec3(0, 5, 0), .color = glm::vec3(1, 1, 1), .intensity = 10.0f };
+        //uint32_t light1Id =
+        //const size_t lightDataBytes =
+
         return true;
     }
 
@@ -2492,7 +2503,7 @@ public final class Application {
                             .imageLayout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
                             .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR) // Clear the image
                             .storeOp(VK_ATTACHMENT_STORE_OP_STORE) // Keep data for presentation
-                            .clearValue(clr -> clr.color(v -> v.float32(stack.floats(0.3F, 0.3F, 1F, 1F))));
+                            .clearValue(clr -> clr.color(v -> v.float32(stack.floats(0.004F, 0.004F, 0.008F, 1F))));
             //                            .clearValue(clr -> clr.color(v -> v.float32(stack.floats(0.01F, 0.01F, 0.01F, 1F))));
             val depthAttachInfo = VkRenderingAttachmentInfo.calloc(stack)
                                                            .sType$Default();
