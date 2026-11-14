@@ -474,9 +474,8 @@ public final class Application {
 
     // mouse related
     private boolean m_useMouseAverage = false;
-    private final double m_mouseSensitivity = 0.3D;
-    private final Vector2d[] m_mouseDeltas = Utils.initArray(MaxMouseDeltas, Vector2d::new, Vector2d[]::new);
-    private int m_mouseDeltaIndex = 0;
+    private final Vector2d m_smoothedMouseRel = new Vector2d();
+    private double m_mouseAlpha = 0.2D;
 
     private void showError(String errorMessage) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", errorMessage, m_window);
@@ -713,27 +712,18 @@ public final class Application {
                 }
             }
 
-            mouseRel.mul(-m_mouseSensitivity);
-
             // Handle basic cam movement
+            val mouseSensitivity = 0.3D;
             val speed = 3D;
             val epsilon = 0.01D;
             val pitchLimit = HALF_PI - epsilon;
+            val tau = 0.02D;
 
-            // write current frames mouse delta into history
-            m_mouseDeltas[m_mouseDeltaIndex].set(mouseRel);
-            m_mouseDeltaIndex = (m_mouseDeltaIndex + 1) % MaxMouseDeltas;
+            mouseRel.mul(-mouseSensitivity);
+            m_mouseAlpha = 1.0f - Math.exp(-deltaTime / tau);
 
-            // get average delta and use that for yaw/pitch
-            val finalMouseRel = new Vector2d();
-            if (m_useMouseAverage) {
-                for (val mouseDelta : m_mouseDeltas) {
-                    finalMouseRel.add(mouseDelta);
-                }
-                finalMouseRel.div(MaxMouseDeltas);
-            } else {
-                finalMouseRel.set(mouseRel);
-            }
+            m_smoothedMouseRel.add(new Vector2d(m_mouseAlpha).mul(new Vector2d(mouseRel).sub(m_smoothedMouseRel)));
+            val finalMouseRel = m_useMouseAverage ? m_smoothedMouseRel : mouseRel;
 
             // update cam look angles
             m_camera.yaw += Math.toRadians(finalMouseRel.x);
