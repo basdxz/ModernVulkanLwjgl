@@ -462,7 +462,6 @@ public final class Application {
     private int m_numLights = 0;
     private int m_numPointLights = 0;
     private int m_numSpotLights = 0;
-    private int m_lightBufferId = 0;
 
     // camera related
     private int m_cameraNodeId = 0;
@@ -648,12 +647,6 @@ public final class Application {
         m_matBufferId = addBuffer(matBuffer);
         mapCopyBufferData(matBuffer, 0, m_materials.segment());
 
-
-        val lightsBuffer = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                                        m_lights.sizeof(),
-                                        true,
-                                        VMA_MEMORY_USAGE_AUTO);
-        m_lightBufferId = addBuffer(lightsBuffer);
         return true;
     }
 
@@ -717,9 +710,9 @@ public final class Application {
             // Handle basic cam movement
             val mouseSensitivity = 0.3D;
             val speed = 3D;
-            val epsilon = 0.01D;
+            val epsilon = 0.001D;
             val pitchLimit = HALF_PI - epsilon;
-            val tau = 0.02D;
+            val tau = 0.030D; // in seconds
 
             mouseRel.mul(-mouseSensitivity);
             m_mouseAlpha = 1.0f - Math.exp(-deltaTime / tau);
@@ -730,7 +723,7 @@ public final class Application {
             // update cam look angles
             m_camera.yaw += Math.toRadians(finalMouseRel.x);
             m_camera.pitch += Math.toRadians(finalMouseRel.y);
-            m_camera.pitch = Math.clamp(m_camera.pitch, -HALF_PI + 0.01D, HALF_PI - 0.01D);
+            m_camera.pitch = Math.clamp(m_camera.pitch, -HALF_PI + epsilon, HALF_PI - epsilon);
 
             val cameraQuat = new Quaterniond().rotateLocalX(m_camera.pitch)
                                               .rotateLocalY(m_camera.yaw);
@@ -1072,6 +1065,11 @@ public final class Application {
 
         if (!createIndirectDrawBuffers()) {
             showError("Couldn't create buffers for indirect-drawing");
+            return false;
+        }
+
+        if (!createResourceBuffers()) {
+            showError("Couldn't create resource buffers");
             return false;
         }
 
@@ -2049,6 +2047,24 @@ public final class Application {
         return true;
     }
 
+    private boolean createResourceBuffers() {
+        assert m_frameResources != null;
+
+        val lightBuffSize = MaxLights * Light.$.sizeof();
+        for (val res : m_frameResources) {
+            res.lightsBuffer = createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                            lightBuffSize,
+                                            true,
+                                            VMA_MEMORY_USAGE_AUTO);
+            if (res.lightsBuffer.vkBuffer == NULL) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private GPUBuffer createBuffer(@NativeType("VkBufferUsageFlags") int usage,
                                    long byteSize,
                                    boolean mappable,
@@ -2383,6 +2399,7 @@ public final class Application {
             assert res.renderItemBuffer != null;
             assert res.indirectDrawPtr != null;
             assert res.renderItemPtr != null;
+            assert res.lightsBuffer != null;
         }
 
         // Now it's safe to start recording commands
@@ -2587,7 +2604,7 @@ public final class Application {
         val materialBuffer = m_buffers.get(m_matBufferId - 1);
         val renderItemBuffer = res.renderItemBuffer;
         val idxBuffer = m_buffers.get(m_indexBufferId - 1);
-        val lightsBuffer = m_buffers.get(m_lightBufferId - 1);
+        val lightsBuffer = res.lightsBuffer;
 
         // Push frame constants
         try (val segStack = SegmentStack.stackPush()) {
@@ -2608,7 +2625,7 @@ public final class Application {
         vkCmdBindIndexBuffer(res.commandBuffer, idxBuffer.vkBuffer, 0, VK_INDEX_TYPE_UINT32);
 
         // update light buffer
-        mapCopyBufferData(lightsBuffer, 0, m_lights.segment());
+        mapCopyBufferData(res.lightsBuffer, 0, m_lights.segment());
 
         // Begin dynamic rendering
         vkCmdBeginRendering(res.commandBuffer, renderingInfo);
@@ -3254,7 +3271,7 @@ public final class Application {
             light.color().x(1F).y(1F).z(1F);
             light.direction().x(0F).y(0F).z(-1F);
             light.intensity(-1F);
-            light.range(100F);
+            light.range(10F);
             light.innerConeAngle(0F);
             light.outerConeAngle((float)(Math.PI / 4D));
             // @formatter:on
@@ -3462,6 +3479,7 @@ public final class Application {
         @Nullable GPUBuffer renderItemBuffer = null;
         VkDrawIndexedIndirectCommand.@Nullable Buffer indirectDrawPtr = null;
         @Nullable StructArray<RenderItem> renderItemPtr = null;
+        @Nullable GPUBuffer lightsBuffer = null;
     }
 
     record Image(int width,
