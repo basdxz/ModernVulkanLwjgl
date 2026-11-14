@@ -2,13 +2,15 @@ package com.ventooth.modernvk;
 
 import lombok.val;
 import org.joml.Matrix4dc;
+import org.joml.Vector3dc;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
 
-import static com.ventooth.modernvk.Structs.*;
+import static com.ventooth.modernvk.Structs.mat4;
+import static com.ventooth.modernvk.Structs.vec3;
 
 public final class Utils {
     public static final double HALF_PI = Math.PI / 2D;
@@ -51,5 +53,11 @@ public final class Utils {
            .m20((float) src.m20()).m21((float) src.m21()).m22((float) src.m22()).m23((float) src.m23())
            .m30((float) src.m30()).m31((float) src.m31()).m32((float) src.m32()).m33((float) src.m33());
         // @formatter:on
+    }
+
+    public static void setVec3(Vector3dc src, vec3 dst) {
+        dst.x((float) src.x())
+           .y((float) src.y())
+           .z((float) src.z());
     }
 }

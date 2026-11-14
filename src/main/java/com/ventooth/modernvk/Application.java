@@ -148,6 +148,7 @@ import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_A;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_D;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_DOWN;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_ESCAPE;
+import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_F;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_F11;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_F9;
 import static org.lwjgl.sdl.SDLScancode.SDL_SCANCODE_GRAVE;
@@ -459,6 +460,7 @@ public final class Application {
 
     // lights
     private @Nullable StructArray<Light> m_lights;
+    // std::vector<uint32_t> m_lightIndices;
     private int m_numLights = 0;
     private int m_numPointLights = 0;
     private int m_numSpotLights = 0;
@@ -653,6 +655,7 @@ public final class Application {
     public void run() {
         assert m_nodeWorld != null;
         assert m_cameraNodeId != 0 : "Camera node must be initialized";
+        assert m_lights != null;
         updateProjectionMatrix();
 
         var running = true;
@@ -702,6 +705,18 @@ public final class Application {
                                                     (SDL_GetWindowFlags(m_window) & SDL_WINDOW_FULLSCREEN) == 0);
                         } else if (scancode == SDL_SCANCODE_F9) {
                             m_useMouseAverage = !m_useMouseAverage;
+                        } else if (scancode == SDL_SCANCODE_F) {
+                            m_lights.forEach(light -> {
+                                if (light.type() == LightType.spot.ordinal()) {
+                                    // Flashlight intensity from gltf
+                                    val flashIntensity = 24341.59713074696F;
+                                    if (light.intensity() == 0) {
+                                        light.intensity(flashIntensity);
+                                    } else {
+                                        light.intensity(0);
+                                    }
+                                }
+                            });
                         }
                     }
                 }
@@ -2615,7 +2630,13 @@ public final class Application {
             frameConsts.vertexBufferAddress(vertBuffer.deviceAddress)
                        .materialBufferAddress(materialBuffer.deviceAddress)
                        .renderItemsAddress(renderItemBuffer.deviceAddress)
-                       .lightsBufferAddress(lightsBuffer.deviceAddress);
+                       .lightsBufferAddress(lightsBuffer.deviceAddress)
+                       .numPointLights(m_numPointLights)
+                       .numSpotLights(m_numSpotLights);
+
+            val camNode = m_nodeWorld.getNode(m_cameraNodeId);
+            Utils.setVec3(camNode.getTranslation(), frameConsts.camPosition());
+            Utils.setVec3(m_camera.forward, frameConsts.camDirection());
 
             val flags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
             vkCmdPushConstants(res.commandBuffer, m_pipelineLayout, flags, 0, buf);
@@ -2625,7 +2646,25 @@ public final class Application {
         vkCmdBindIndexBuffer(res.commandBuffer, idxBuffer.vkBuffer, 0, VK_INDEX_TYPE_UINT32);
 
         // update light buffer
-        mapCopyBufferData(res.lightsBuffer, 0, m_lights.segment());
+        if (m_numLights > 0) {
+            // Horrible way of sorting all the point lights ahead of spotlights
+            try (val segStack = SegmentStack.stackPush()) {
+                val combinedLights = m_lights.slice(0, m_numLights);
+                val sortedLights = Light.$.allocate(segStack, m_numLights);
+                int i = 0;
+                for (val light : combinedLights) {
+                    if (light.type() == LightType.point.ordinal()) {
+                        sortedLights.set(i++, light);
+                    }
+                }
+                for (val light : combinedLights) {
+                    if (light.type() == LightType.spot.ordinal()) {
+                        sortedLights.set(i++, light);
+                    }
+                }
+                mapCopyBufferData(res.lightsBuffer, 0, sortedLights.segment());
+            }
+        }
 
         // Begin dynamic rendering
         vkCmdBeginRendering(res.commandBuffer, renderingInfo);
@@ -2984,7 +3023,8 @@ public final class Application {
                     textureIndex = m_whitePixelImageId;
                 }
             }
-            val color = Objects.requireNonNullElse(pbr.getBaseColorFactor(), pbr.defaultBaseColorFactor());
+            val color = Objects.requireNonNullElseGet(pbr.getBaseColorFactor(), pbr::defaultBaseColorFactor);
+            val roughnessFactor = Objects.requireNonNullElseGet(pbr.getRoughnessFactor(), pbr::defaultRoughnessFactor);
 
             m_materials.apply(m_matOffset, mat -> {
                 mat.baseColor()
@@ -2992,7 +3032,8 @@ public final class Application {
                    .y((float) color[1])
                    .z((float) color[2])
                    .w((float) color[3]);
-                mat.textureIndex(textureIndex);
+                mat.roughnessFactor(roughnessFactor.floatValue());
+                mat.baseColorTextureIndex(textureIndex);
             });
             m_matOffset++;
             materialIds[i] = m_matOffset;
@@ -3270,7 +3311,7 @@ public final class Application {
             light.position().x(0F).y(0F).z(0F);
             light.color().x(1F).y(1F).z(1F);
             light.direction().x(0F).y(0F).z(-1F);
-            light.intensity(-1F);
+            light.intensity(1F);
             light.range(10F);
             light.innerConeAngle(0F);
             light.outerConeAngle((float)(Math.PI / 4D));

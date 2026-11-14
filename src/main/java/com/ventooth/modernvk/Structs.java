@@ -213,20 +213,25 @@ public final class Structs {
     @FFMDefinition("""
             struct Material {
             	vec4 baseColor;
-            	uint32_t textureIndex;
+            	float roughnessFactor;
+            	uint32_t baseColorTextureIndex;
             }""")
     public interface Material {
         // @formatter:off
         StructBinder<Material> $ = FFM.ffmStruct(Material.class)
             .m("baseColor", vec4.$)
-            .m("textureIndex", FFM.uint32_t)
+            .m("roughnessFactor", FFM.float32)
+            .m("baseColorTextureIndex", FFM.uint32_t)
             .build();
 
         Material    baseColor(vec4 baseColor);
         vec4        baseColor();
 
-        Material    textureIndex(int textureIndex);
-        int         textureIndex();
+        Material    roughnessFactor(float roughnessFactor);
+        float       roughnessFactor();
+
+        Material    baseColorTextureIndex(int baseColorTextureIndex);
+        int         baseColorTextureIndex();
         // @formatter:on
     }
 
@@ -286,6 +291,10 @@ public final class Structs {
             	uint64_t materialBufferAddress;
             	uint64_t renderItemsAddress;
             	uint64_t lightsBufferAddress;
+            	vec3 camPosition;
+            	vec3 camDirection;
+            	int numPointLights;
+            	int numSpotLights;
             }""")
     public interface FrameConstants {
         // @formatter:off
@@ -293,7 +302,11 @@ public final class Structs {
             .m("vertexBufferAddress",   FFM.uint64_t)
             .m("materialBufferAddress", FFM.uint64_t)
             .m("renderItemsAddress",    FFM.uint64_t)
-            .m("lightsBufferAddress",    FFM.uint64_t)
+            .m("lightsBufferAddress",   FFM.uint64_t)
+            .m("camPosition",           vec3.$)
+            .m("camDirection",          vec3.$)
+            .m("numPointLights",        FFM.uint32_t)
+            .m("numSpotLights",         FFM.uint32_t)
             .build();
 
         FrameConstants  vertexBufferAddress(long vertexBufferAddress);
@@ -307,6 +320,18 @@ public final class Structs {
 
         FrameConstants  lightsBufferAddress(long lightsBufferAddress);
         long            lightsBufferAddress();
+
+        FrameConstants  camPosition(vec3 camPosition);
+        vec3            camPosition();
+
+        FrameConstants  camDirection(vec3 camDirection);
+        vec3            camDirection();
+
+        FrameConstants  numPointLights(int numPointLights);
+        int             numPointLights();
+
+        FrameConstants  numSpotLights(int numSpotLights);
+        int             numSpotLights();
         // @formatter:on
     }
 }
