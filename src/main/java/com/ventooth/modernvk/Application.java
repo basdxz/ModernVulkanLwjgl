@@ -20,6 +20,7 @@ import org.joml.Matrix4dc;
 import org.joml.Quaterniond;
 import org.joml.Vector2d;
 import org.joml.Vector3d;
+import org.joml.Vector4d;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.sdl.SDL_Event;
@@ -460,6 +461,7 @@ public final class Application {
     private @Nullable StructArray<Light> m_lights;
     private int m_numLights = 0;
     private int m_numPointLights = 0;
+    private int m_numSpotLights = 0;
     private int m_lightBufferId = 0;
 
     // camera related
@@ -2467,11 +2469,20 @@ public final class Application {
                 }
             } else if (lightId != 0) {
                 val lightPos = new Vector3d().mulPosition(matWorld);
-                m_lights.get(lightId - 1)
-                        .position()
-                        .x((float) lightPos.x)
-                        .y((float) lightPos.y)
-                        .z((float) lightPos.z);
+                val light = m_lights.get(lightId - 1);
+
+                light.position()
+                     .x((float) lightPos.x)
+                     .y((float) lightPos.y)
+                     .z((float) lightPos.z);
+
+                if (light.type() == LightType.spot.ordinal()) {
+                    val lightDir = new Vector4d(0D, 0D, 1D, 0D).mul(matWorld);
+                    light.direction()
+                         .x((float) lightDir.x)
+                         .y((float) lightDir.y)
+                         .z((float) lightDir.z);
+                }
             }
 
             // Child nodes for processing
@@ -3226,14 +3237,27 @@ public final class Application {
         val lightIds = new int[numLights];
 
         for (var i = 0; i < numLights; i++) {
+            val rawType = Objects.requireNonNullElse(gltfLightsRaw.get(i)
+                                                                  .get("type"), "unknown");
+            //noinspection SwitchStatementWithTooFewBranches
+            val type = switch ((String) rawType) {
+                case "spot" -> LightType.spot;
+                default -> LightType.point;
+            };
+
             val gltfLight = gltfLightList.get(i);
             val light = m_lights.get(m_numLights++);
 
-            // Later set based on the parent
-            light.position()
-                 .x(0F)
-                 .y(0F)
-                 .z(0F);
+            // Defaults
+            // @formatter:off
+            light.position().x(0F).y(0F).z(0F);
+            light.color().x(1F).y(1F).z(1F);
+            light.direction().x(0F).y(0F).z(-1F);
+            light.intensity(-1F);
+            light.range(100F);
+            light.innerConeAngle(0F);
+            light.outerConeAngle((float)(Math.PI / 4D));
+            // @formatter:on
 
             val gltfColor = gltfLight.getColor();
             if (gltfColor != null) {
@@ -3241,26 +3265,30 @@ public final class Application {
                      .x((float) gltfColor[0])
                      .y((float) gltfColor[1])
                      .z((float) gltfColor[2]);
-            } else {
-                light.color()
-                     .x(1F)
-                     .y(1F)
-                     .z(1F);
             }
 
             val gltfIntensity = gltfLight.getIntensity();
             if (gltfIntensity != null) {
                 light.intensity(gltfIntensity.floatValue());
-            } else {
-                light.intensity(1F);
             }
-            light.range(100F);
 
             lightIds[i] = m_numLights;
 
-            if ("point".equals(gltfLightsRaw.get(i)
-                                            .get("type"))) {
-                m_numPointLights++;
+            light.type(type.ordinal());
+            switch (type) {
+                case point -> m_numPointLights++;
+                case spot -> {
+                    val gltfSpot = gltfLight.getSpot();
+                    val innerConeAngle = gltfSpot.getInnerConeAngle();
+                    if (innerConeAngle != null) {
+                        light.innerConeAngle(innerConeAngle.floatValue());
+                    }
+                    val outerConeAngle = gltfSpot.getOuterConeAngle();
+                    if (outerConeAngle != null) {
+                        light.outerConeAngle(outerConeAngle.floatValue());
+                    }
+                    m_numSpotLights++;
+                }
             }
         }
         return lightIds;
@@ -3376,7 +3404,7 @@ public final class Application {
 
     private void updateProjectionMatrix() {
         val aspectRatio = m_width / (double) m_height;
-        m_matProj.setPerspective(m_camera.fovY, aspectRatio, m_camera.nearPlane, m_camera.farPlane);
+        m_matProj.setPerspective(m_camera.fovY, aspectRatio, m_camera.nearPlane, m_camera.farPlane, true);
     }
 
     private void updateViewMatrix() {

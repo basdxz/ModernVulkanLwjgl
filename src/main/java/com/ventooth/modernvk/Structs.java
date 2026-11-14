@@ -2,13 +2,10 @@ package com.ventooth.modernvk;
 
 import lombok.val;
 import org.jspecify.annotations.Nullable;
-import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.ffm.FFM;
 import org.lwjgl.system.ffm.FFMDefinition;
 import org.lwjgl.system.ffm.StructBinder;
 
-import java.lang.foreign.MemorySegment;
-import java.lang.foreign.SegmentAllocator;
 import java.lang.invoke.MethodHandles;
 
 public final class Structs {
@@ -235,19 +232,30 @@ public final class Structs {
 
     @FFMDefinition("""
             struct Light {
+                uint type;
             	vec3 position;
             	vec3 color;
+            	vec3 direction;
             	float intensity;
             	float range;
+            	float innerConeAngle;
+            	float outerConeAngle;
             }""")
     public interface Light {
         // @formatter:off
         StructBinder<Light> $ = FFM.ffmStruct(Light.class)
+                                      .m("type", FFM.uint32_t)
                                       .m("position", vec3.$)
                                       .m("color", vec3.$)
+                                      .m("direction", vec3.$)
                                       .m("intensity", FFM.float32)
                                       .m("range", FFM.float32)
+                                      .m("innerConeAngle", FFM.float32)
+                                      .m("outerConeAngle", FFM.float32)
                                       .build();
+
+        Light   type(int type);
+        int     type();
 
         Light   position(vec3 position);
         vec3    position();
@@ -255,11 +263,20 @@ public final class Structs {
         Light   color(vec3 color);
         vec3    color();
 
+        Light   direction(vec3 direction);
+        vec3    direction();
+
         Light   intensity(float intensity);
         float   intensity();
 
         Light   range(float range);
         float   range();
+
+        Light   innerConeAngle(float innerConeAngle);
+        float   innerConeAngle();
+
+        Light   outerConeAngle(float outerConeAngle);
+        float   outerConeAngle();
         // @formatter:on
     }
 
