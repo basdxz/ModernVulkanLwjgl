@@ -2428,7 +2428,7 @@ public final class Application {
         var nodeId = m_rootNodeId;
         while (nodeId != 0) {
             val node = m_nodeWorld.getNode(nodeId);
-            m_nodeRenderStack.push(new Pair<>(node, new Matrix4d()));
+            m_nodeRenderStack.addLast(new Pair<>(node, new Matrix4d()));
             nodeId = node.nextSiblingId;
         }
 
@@ -2437,7 +2437,7 @@ public final class Application {
             final Node node;
             final Matrix4dc parentTransform;
             {
-                val pair = m_nodeRenderStack.pop();
+                val pair = m_nodeRenderStack.removeLast();
                 node = pair.fst();
                 parentTransform = pair.snd();
             }
@@ -2477,7 +2477,7 @@ public final class Application {
                      .z((float) lightPos.z);
 
                 if (light.type() == LightType.spot.ordinal()) {
-                    val lightDir = new Vector4d(0D, 0D, 1D, 0D).mul(matWorld);
+                    val lightDir = new Vector4d(0D, 0D, -1D, 0D).mul(matWorld);
                     light.direction()
                          .x((float) lightDir.x)
                          .y((float) lightDir.y)
@@ -3316,6 +3316,8 @@ public final class Application {
         }
         node.parentId = parentId;
 
+        node.name = Objects.requireNonNullElse(gltfNode.getName(), "?");
+
         tf:
         {
             val rawTransform = gltfNode.getMatrix();
@@ -3393,7 +3395,7 @@ public final class Application {
                 lastChildId = importNode(gltf, model, childIndex, nodeId, lastChildId, meshIds, lightIds);
 
                 // set parent's first child id field
-                if (node.firstChildId != 0) {
+                if (node.firstChildId == 0) {
                     node.firstChildId = lastChildId;
                 }
             }

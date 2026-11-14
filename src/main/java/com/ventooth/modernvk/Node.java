@@ -16,6 +16,8 @@ public final class Node {
 
     private boolean m_dirty = true;
 
+    public String name;
+
     public int meshId = 0;
     public int lightId = 0;
     public int parentId = 0;
@@ -69,5 +71,10 @@ public final class Node {
 
         m_transform.set(transform);
         m_dirty = false;
+    }
+
+    @Override
+    public String toString() {
+        return name;
     }
 }
