@@ -215,6 +215,8 @@ public final class Structs {
             	vec4 baseColor;
             	float roughnessFactor;
             	uint32_t baseColorTextureIndex;
+            	uint32_t normalTextureIndex;
+            	uint32_t roughnessTextureIndex;
             }""")
     public interface Material {
         // @formatter:off
@@ -222,6 +224,8 @@ public final class Structs {
             .m("baseColor", vec4.$)
             .m("roughnessFactor", FFM.float32)
             .m("baseColorTextureIndex", FFM.uint32_t)
+            .m("normalTextureIndex", FFM.uint32_t)
+            .m("roughnessTextureIndex", FFM.uint32_t)
             .build();
 
         Material    baseColor(vec4 baseColor);
@@ -230,8 +234,15 @@ public final class Structs {
         Material    roughnessFactor(float roughnessFactor);
         float       roughnessFactor();
 
+        // 0 -> empty texture
         Material    baseColorTextureIndex(int baseColorTextureIndex);
         int         baseColorTextureIndex();
+
+        Material    normalTextureIndex(int normalTextureIndex);
+        int         normalTextureIndex();
+
+        Material    roughnessTextureIndex(int roughnessTextureIndex);
+        int         roughnessTextureIndex();
         // @formatter:on
     }
 

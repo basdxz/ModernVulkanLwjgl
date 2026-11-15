@@ -1,5 +1,7 @@
 package com.ventooth.modernvk;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.joml.Matrix4d;
 import org.joml.Matrix4dc;
 import org.joml.Matrix4fc;
@@ -16,7 +18,9 @@ public final class Node {
 
     private boolean m_dirty = true;
 
-    public String name;
+    @Setter
+    @Getter
+    private String name = "";
 
     public int meshId = 0;
     public int lightId = 0;

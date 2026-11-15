@@ -253,6 +253,7 @@ import static org.lwjgl.vulkan.VK10.VK_FILTER_NEAREST;
 import static org.lwjgl.vulkan.VK10.VK_FORMAT_B8G8R8A8_SRGB;
 import static org.lwjgl.vulkan.VK10.VK_FORMAT_D32_SFLOAT;
 import static org.lwjgl.vulkan.VK10.VK_FORMAT_R8G8B8A8_SRGB;
+import static org.lwjgl.vulkan.VK10.VK_FORMAT_R8G8B8A8_UNORM;
 import static org.lwjgl.vulkan.VK10.VK_FRONT_FACE_COUNTER_CLOCKWISE;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_ASPECT_COLOR_BIT;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -366,8 +367,6 @@ public final class Application {
     private static final int MaxFramesInFlight = 2;
     private static final String shaderEntryPoint = "main";
 
-    private static final int MaxMouseDeltas = 5;
-
     private static final long VertexBufferBytes = 128 * 1024 * 1024; // 128MB vertex budget
     private static final long IndexBufferBytes = 64 * 1024 * 1024; // 64MB index budget
     private static final int MaxNumVertices;
@@ -480,6 +479,9 @@ public final class Application {
     private final Vector2d m_smoothedMouseRel = new Vector2d();
     private double m_mouseAlpha = 0.2D;
 
+    // gameplay related
+    private int m_flashlightId = 0;
+
     private void showError(String errorMessage) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", errorMessage, m_window);
     }
@@ -517,20 +519,22 @@ public final class Application {
 
         // Fallback 1x1 white texture base color texture (0-index in tex array)
         val whitePixelData = FFM.uint32_t.allocateSegment(m_arena, 1);
-        whitePixelData.asByteBuffer()
-                      .putInt(0xFFFFFFFF); // RGBA
+        whitePixelData.setAtIndex(FFM.uint32_t.layout(), 0, 0xFFFFFFFF); // RGBA
 
-        val whitePixel = new Image(1, 1, 4, whitePixelData);
+        m_images.add(new GPUImage());
+
+        val whitePixel = new Image();
+        whitePixel.width = 1;
+        whitePixel.height = 1;
+        whitePixel.channels = 4;
+        whitePixel.usage = ImageUsage.srgb;
+        whitePixel.data = whitePixelData;
+        whitePixel.gpuImageId = m_images.size();
 
         val whiteImgCmdBuff = startTransientCommandBuffer();
-        final int whiteImageId;
-        final GPUBuffer whiteStagingBuffer;
-        {
-            val pair = createImage(whiteImgCmdBuff, whitePixel);
-            whiteImageId = pair.fst();
-            whiteStagingBuffer = pair.snd();
-        }
-        m_whitePixelImageId = whiteImageId;
+        val whiteStagingBuffer = createImage(whiteImgCmdBuff, whitePixel);
+
+        m_whitePixelImageId = whitePixel.gpuImageId;
         submitTransientCommandBuffer(whiteImgCmdBuff); // submit and wait
         vmaDestroyBuffer(m_vmaAllocator, whiteStagingBuffer.vkBuffer, whiteStagingBuffer.allocation);
 
@@ -557,7 +561,10 @@ public final class Application {
         m_samplers.add(sampler);
         val whiteSamplerId = m_samplers.size();
 
-        m_textures.add(new Texture(m_whitePixelImageId, whiteSamplerId));
+        val whitePixelTexture = new Texture();
+        whitePixelTexture.imageId = m_whitePixelImageId;
+        whitePixelTexture.samplerId = whiteSamplerId;
+        m_textures.add(whitePixelTexture);
 
         //        loadGltf("./glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf");
         //        loadGltf("./glTF-Sample-Assets/Models/Cube/glTF/Cube.gltf");
@@ -569,6 +576,7 @@ public final class Application {
         if (m_cameraNodeId == 0) {
             val pair = m_nodeWorld.createNode();
             val camNode = pair.fst();
+            camNode.setName("Fallback Cam");
             m_cameraNodeId = pair.snd();
 
             camNode.setTranslation(new Vector3d(1D, 1.5D, 5D));
@@ -706,7 +714,12 @@ public final class Application {
                         } else if (scancode == SDL_SCANCODE_F9) {
                             m_useMouseAverage = !m_useMouseAverage;
                         } else if (scancode == SDL_SCANCODE_F) {
-                            m_lights.forEach(light -> {
+                            if (m_flashlightId != 0) {
+                                // get flashlight node and it's associated Light object
+                                val flashlightNode = m_nodeWorld.getNode(m_flashlightId);
+                                val light = m_lights.get(flashlightNode.lightId - 1);
+
+                                // toggle light on/off via intensity
                                 if (light.type() == LightType.spot.ordinal()) {
                                     // Flashlight intensity from gltf
                                     val flashIntensity = 24341.59713074696F;
@@ -716,7 +729,7 @@ public final class Application {
                                         light.intensity(0);
                                     }
                                 }
-                            });
+                            }
                         }
                     }
                 }
@@ -2205,18 +2218,19 @@ public final class Application {
         vkFreeCommandBuffers(m_device, m_commandPool, commandBuffer);
     }
 
-    private Pair<Integer, GPUBuffer> createImage(VkCommandBuffer commandBuffer, Image cpuImg) {
+    private GPUBuffer createImage(VkCommandBuffer commandBuffer, Image image) {
         assert m_device != null;
         assert m_vmaAllocator != NULL;
 
         @Cleanup val stack = MemoryStack.stackPush();
 
-        val width = cpuImg.width;
-        val height = cpuImg.height;
-        val imageFormat = VK_FORMAT_R8G8B8A8_SRGB;
+        val width = image.width;
+        val height = image.height;
+        assert image.usage != ImageUsage.unknown : "Unknown image usage specified";
+        val imageFormat = image.usage == ImageUsage.srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
+        assert image.data != null;
 
-        // Create vk image and allocation
-        val gpuImg = new GPUImage();
+        val gpuImage = m_images.get(image.gpuImageId - 1);
         {
             val imageInfo = VkImageCreateInfo.calloc(stack)
                                              .sType$Default()
@@ -2236,17 +2250,17 @@ public final class Application {
             val allocationPtr = stack.callocPointer(1);
             if (vmaCreateImage(m_vmaAllocator, imageInfo, allocInfo, imagePtr, allocationPtr, null) != VK_SUCCESS) {
                 showError("Error creating image");
-                throw new IllegalStateException();// return {0, GPUBuffer{}};
+                return new GPUBuffer();
             }
-            gpuImg.image = imagePtr.get(0);
-            gpuImg.allocation = allocationPtr.get(0);
+            gpuImage.image = imagePtr.get(0);
+            gpuImage.allocation = allocationPtr.get(0);
         }
 
         // Create image view
         {
             val imgViewInfo = VkImageViewCreateInfo.calloc(stack)
                                                    .sType$Default()
-                                                   .image(gpuImg.image)
+                                                   .image(gpuImage.image)
                                                    .viewType(VK_IMAGE_VIEW_TYPE_2D)
                                                    .format(imageFormat)
                                                    .subresourceRange(sr -> sr.aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)
@@ -2256,9 +2270,9 @@ public final class Application {
             val ptr = stack.callocLong(1);
             if (vkCreateImageView(m_device, imgViewInfo, null, ptr) != VK_SUCCESS) {
                 showError("Error creating image view");
-                throw new IllegalStateException();// return { 0, GPUBuffer{} };
+                return new GPUBuffer();
             }
-            gpuImg.imageView = ptr.get(0);
+            gpuImage.imageView = ptr.get(0);
         }
 
         // Transition the image to transfer-DST
@@ -2271,7 +2285,7 @@ public final class Application {
                                                        .dstAccessMask(VK_ACCESS_2_TRANSFER_WRITE_BIT)
                                                        .oldLayout(VK_IMAGE_LAYOUT_UNDEFINED)
                                                        .newLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-                                                       .image(gpuImg.image)
+                                                       .image(gpuImage.image)
                                                        .subresourceRange((sr) -> sr.aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)
                                                                                    .baseMipLevel(0)
                                                                                    .levelCount(1)
@@ -2288,10 +2302,10 @@ public final class Application {
         final GPUBuffer stageBuff;
         {
             stageBuff = createBuffer(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                     cpuImg.data.byteSize(),
+                                     image.data.byteSize(),
                                      true,
                                      VMA_MEMORY_USAGE_AUTO_PREFER_HOST);
-            mapCopyBufferData(stageBuff, 0, cpuImg.data);
+            mapCopyBufferData(stageBuff, 0, image.data);
 
             val buffImgCopy = VkBufferImageCopy.calloc(1, stack)
                                                .imageSubresource(sr -> sr.aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)
@@ -2301,7 +2315,7 @@ public final class Application {
                                                .imageExtent(ext -> ext.set(width, height, 1));
             vkCmdCopyBufferToImage(commandBuffer,
                                    stageBuff.vkBuffer,
-                                   gpuImg.image,
+                                   gpuImage.image,
                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                    buffImgCopy);
         }
@@ -2316,7 +2330,7 @@ public final class Application {
                                                          .dstAccessMask(VK_ACCESS_2_SHADER_READ_BIT)
                                                          .oldLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
                                                          .newLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-                                                         .image(gpuImg.image)
+                                                         .image(gpuImage.image)
                                                          .subresourceRange((sr) -> sr.aspectMask(
                                                                                              VK_IMAGE_ASPECT_COLOR_BIT)
                                                                                      .baseMipLevel(0)
@@ -2330,9 +2344,7 @@ public final class Application {
             vkCmdPipelineBarrier2(commandBuffer, transferDepInfo);
         }
 
-        m_images.add(gpuImg);
-        val imageId = m_images.size();
-        return new Pair<>(imageId, stageBuff);
+        return stageBuff;
     }
 
     private void updateTextureDescriptors() {
@@ -2819,15 +2831,18 @@ public final class Application {
             return;
         }
 
-        final int[] imageIds;
-        try (val arena = Arena.ofConfined()) { // frees image memory after uploading to VRAM
+        final int[] materialIds;
+        try (val arena = Arena.ofConfined()) { // arena frees cpu image memory after uploading to VRAM
             val images = loadImages(arena, gltf, fileDir); // load images into RAM
-            imageIds = uploadImages(images); // upload images to VRAM
+
+            // load materials and detect image usage type
+            val samplerIds = loadSamplers(gltf); // samplers required for shaders
+            materialIds = loadMaterials(gltf, samplerIds, images);
+
+            // create images and upload to GPU
+            uploadImages(images); // upload images to VRAM
         }
 
-        val samplerIds = loadSamplers(gltf); // samplers required for shaders
-        val textureIds = loadTextures(gltf, imageIds, samplerIds); // image/sampler combinations
-        val materialIds = loadMaterials(gltf, textureIds); // materials reference textureIds
         val meshIds = loadMeshes(gltf, materialIds, buffers); // meshes/submeshes reference materials
         val lightIds = loadLights(model);
 
@@ -2845,6 +2860,12 @@ public final class Application {
                 // subsequent root nodes, link to previous root node
                 m_lastRootNodeId = nodeId;
             }
+        }
+    }
+
+    private void onNodeImported(Node node, int nodeId) {
+        if ("Flashlight".equals(node.getName())) {
+            m_flashlightId = nodeId;
         }
     }
 
@@ -2877,14 +2898,16 @@ public final class Application {
                     throw new IllegalStateException("stbi gave no data");
                 }
 
-                val width = widthPtr.get(0);
-                val height = heightPtr.get(0);
-                val channels = channelsPtr.get(0);
+                val image = new Image();
 
-                val data = arena.allocate(stbiData.remaining());
-                data.copyFrom(MemorySegment.ofBuffer(stbiData));
+                image.width = widthPtr.get(0);
+                image.height = heightPtr.get(0);
+                image.channels = channelsPtr.get(0);
 
-                images[i] = new Image(width, height, channels, data);
+                image.data = arena.allocate(stbiData.remaining());
+                image.data.copyFrom(MemorySegment.ofBuffer(stbiData));
+
+                images[i] = image;
             } catch (Exception e) {
                 if (imageName == null) {
                     imageName = "Unknown at index: " + i + 1;
@@ -2899,7 +2922,7 @@ public final class Application {
         return images;
     }
 
-    private int[] uploadImages(@Nullable Image[] images) {
+    private void uploadImages(@Nullable Image[] images) {
         assert m_vmaAllocator != NULL;
 
         val commandBuffer = startTransientCommandBuffer();
@@ -2908,17 +2931,10 @@ public final class Application {
         final @Nullable GPUBuffer[] stagingBuffers = new GPUBuffer[images.length];
 
         // Upload images to GPU textures
-        val imageIds = new int[numImages];
         for (var i = 0; i < numImages; i++) {
             val image = images[i];
             if (image != null) {
-                val pair = createImage(commandBuffer, image);
-                val imageId = pair.fst();
-                val stagingTexBuffer = pair.snd();
-                imageIds[i] = imageId;
-                stagingBuffers[i] = stagingTexBuffer;
-            } else {
-                imageIds[i] = m_whitePixelImageId; // fallback to white pixel texture
+                stagingBuffers[i] = createImage(commandBuffer, image);
             }
         }
 
@@ -2930,7 +2946,6 @@ public final class Application {
                 vmaDestroyBuffer(m_vmaAllocator, stageBuff.vkBuffer, stageBuff.allocation);
             }
         }
-        return imageIds;
     }
 
     private int[] loadSamplers(GlTF model) {
@@ -2980,65 +2995,86 @@ public final class Application {
         return samplerIds;
     }
 
-    private int[] loadTextures(GlTF model, int[] imageIds, int[] samplerIds) {
-        val gltfTextures = model.getTextures();
-        if (gltfTextures == null || gltfTextures.isEmpty()) {
-            return new int[0];
-        }
-
-        val numTextures = gltfTextures.size();
-        assert m_textures.size() + numTextures <= MaxTextures : "Exceeding max texture count";
-
-        val textureIds = new int[numTextures];
-        for (var i = 0; i < numTextures; i++) {
-            val gltfTexture = gltfTextures.get(i);
-            val imageId = imageIds[gltfTexture.getSource()];
-            val samplerId = samplerIds[gltfTexture.getSampler()];
-
-            m_textures.add(new Texture(imageId, samplerId));
-
-            textureIds[i] = m_textures.size();
-        }
-        return textureIds;
-    }
-
-    private int[] loadMaterials(GlTF model, int[] textureIds) {
+    private int[] loadMaterials(GlTF model, int[] samplerIds, @Nullable Image[] images) {
         assert m_materials != null;
 
         val gltfMaterials = model.getMaterials();
         val numMaterials = gltfMaterials.size();
         assert numMaterials + m_matOffset < MaxMaterials : "Exceeding max material count";
 
+        val gltfTextures = model.getTextures();
+        val numTextures = gltfTextures.size();
+        assert numTextures + m_textures.size() < MaxTextures : "Exceeding max texture count";
+
         val materialIds = new int[numMaterials];
+
         for (var i = 0; i < numMaterials; i++) {
+            val mat = m_materials.get(m_matOffset++);
+            materialIds[i] = m_matOffset;
+
             val gltfMaterial = gltfMaterials.get(i);
             val pbr = gltfMaterial.getPbrMetallicRoughness();
 
-            final int textureIndex;
-            {
-                val textureInfo = pbr.getBaseColorTexture();
-                if (textureInfo != null) {
-                    textureIndex = textureIds[textureInfo.getIndex()] - 1;
-                } else {
-                    textureIndex = m_whitePixelImageId;
-                }
-            }
             val color = Objects.requireNonNullElseGet(pbr.getBaseColorFactor(), pbr::defaultBaseColorFactor);
             val roughnessFactor = Objects.requireNonNullElseGet(pbr.getRoughnessFactor(), pbr::defaultRoughnessFactor);
 
-            m_materials.apply(m_matOffset, mat -> {
-                mat.baseColor()
-                   .x((float) color[0])
-                   .y((float) color[1])
-                   .z((float) color[2])
-                   .w((float) color[3]);
-                mat.roughnessFactor(roughnessFactor.floatValue());
-                mat.baseColorTextureIndex(textureIndex);
-            });
-            m_matOffset++;
-            materialIds[i] = m_matOffset;
+            mat.baseColor()
+               .x((float) color[0])
+               .y((float) color[1])
+               .z((float) color[2])
+               .w((float) color[3]);
+            mat.roughnessFactor(roughnessFactor.floatValue());
+
+            val gltfColorTexture = pbr.getBaseColorTexture();
+            if (gltfColorTexture != null) {
+                val tex = gltfTextures.get(gltfColorTexture.getIndex());
+                mat.baseColorTextureIndex(processTexture(samplerIds, images, tex, ImageUsage.srgb));
+            } else {
+                mat.baseColorTextureIndex(m_whitePixelImageId - 1);
+            }
+            val gltfNormalTexture = gltfMaterial.getNormalTexture();
+            if (gltfNormalTexture != null) {
+                val tex = gltfTextures.get(gltfNormalTexture.getIndex());
+                mat.normalTextureIndex(processTexture(samplerIds, images, tex, ImageUsage.data));
+            } else {
+                mat.normalTextureIndex(m_whitePixelImageId - 1);
+            }
+            val gltfRoughnessTexture = pbr.getMetallicRoughnessTexture();
+            if (gltfNormalTexture != null) {
+                val tex = gltfTextures.get(gltfRoughnessTexture.getIndex());
+                mat.roughnessTextureIndex(processTexture(samplerIds, images, tex, ImageUsage.data));
+            } else {
+                mat.roughnessTextureIndex(m_whitePixelImageId - 1);
+            }
         }
         return materialIds;
+    }
+
+    private int processTexture(int[] samplerIds,
+                               @Nullable Image[] images,
+                               de.javagl.jgltf.impl.v2.Texture tex,
+                               ImageUsage imageUsage) {
+        // set appropriate image usage and pre-create GPUImage ID
+        val img = images[tex.getSource()];
+        if (img == null) {
+            return m_whitePixelImageId - 1;
+        }
+
+        if (!(img.usage == ImageUsage.unknown || img.usage == imageUsage)) {
+            throw new IllegalStateException("Dual image usage is unsupported");
+        }
+        img.usage = imageUsage;
+        m_images.add(new GPUImage());
+        img.gpuImageId = m_images.size();
+
+        // create texture GPUImage/Sampler combo
+        val texture = new Texture();
+        texture.name = Objects.requireNonNullElse(tex.getName(), "");
+        texture.imageId = img.gpuImageId;
+        texture.samplerId = samplerIds[tex.getSampler()];
+
+        m_textures.add(texture);
+        return m_textures.size() - 1;
     }
 
     private int[] loadMeshes(GlTF model, int[] materialIds, MemorySegment[] buffers) {
@@ -3372,9 +3408,8 @@ public final class Application {
             node = pair.fst();
             nodeId = pair.snd();
         }
+        node.setName(Objects.requireNonNullElse(gltfNode.getName(), ""));
         node.parentId = parentId;
-
-        node.name = Objects.requireNonNullElse(gltfNode.getName(), "?");
 
         tf:
         {
@@ -3458,6 +3493,7 @@ public final class Application {
                 }
             }
         }
+        onNodeImported(node, nodeId);
 
         return nodeId;
     }
@@ -3523,14 +3559,32 @@ public final class Application {
         @Nullable GPUBuffer lightsBuffer = null;
     }
 
-    record Image(int width,
-                 int height,
-                 int channels,
-                 MemorySegment data) {
+    static final class Image {
+        int width;
+        int height;
+        int channels;
+        ImageUsage usage = ImageUsage.unknown;
+        @Nullable MemorySegment data;
+        int gpuImageId = 0;
     }
 
-    record Texture(int imageId,
-                   int samplerId) {
+    enum ImageUsage {
+        unknown,
+        srgb,
+        data
+    }
+
+    static final class Texture {
+        String name = "";
+        int imageId = 0;
+        int samplerId = 0;
+    }
+
+    @Deprecated
+    record OldImage(int width,
+                    int height,
+                    int channels,
+                    MemorySegment data) {
     }
 
     static final class Mesh {
