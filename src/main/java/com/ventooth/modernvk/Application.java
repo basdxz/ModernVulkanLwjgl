@@ -115,11 +115,13 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static com.ventooth.modernvk.Camera.CameraType;
@@ -2663,16 +2665,11 @@ public final class Application {
             try (val segStack = SegmentStack.stackPush()) {
                 val combinedLights = m_lights.slice(0, m_numLights);
                 val sortedLights = Light.$.allocate(segStack, m_numLights);
-                int i = 0;
-                for (val light : combinedLights) {
-                    if (light.type() == LightType.point.ordinal()) {
-                        sortedLights.set(i++, light);
-                    }
-                }
-                for (val light : combinedLights) {
-                    if (light.type() == LightType.spot.ordinal()) {
-                        sortedLights.set(i++, light);
-                    }
+                val lightList = combinedLights.stream()
+                                              .sorted(Comparator.comparingInt(Light::type))
+                                              .collect(Collectors.toCollection(ArrayList::new));
+                for (var i = 0; i < m_numLights; i++) {
+                    sortedLights.set(i, lightList.get(i));
                 }
                 mapCopyBufferData(res.lightsBuffer, 0, sortedLights.segment());
             }
