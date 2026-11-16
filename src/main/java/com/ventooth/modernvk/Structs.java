@@ -304,8 +304,9 @@ public final class Structs {
             	uint64_t lightsBufferAddress;
             	vec3 camPosition;
             	vec3 camDirection;
-            	int numPointLights;
-            	int numSpotLights;
+            	uint32_t numDirLights;
+            	uint32_t numSpotLights;
+            	uint32_t numSpotLights;
             }""")
     public interface FrameConstants {
         // @formatter:off
@@ -316,6 +317,7 @@ public final class Structs {
             .m("lightsBufferAddress",   FFM.uint64_t)
             .m("camPosition",           vec3.$)
             .m("camDirection",          vec3.$)
+            .m("numDirLights",        FFM.uint32_t)
             .m("numPointLights",        FFM.uint32_t)
             .m("numSpotLights",         FFM.uint32_t)
             .build();
@@ -337,6 +339,9 @@ public final class Structs {
 
         FrameConstants  camDirection(vec3 camDirection);
         vec3            camDirection();
+
+        FrameConstants  numDirLights(int numDirLights);
+        int             numDirLights();
 
         FrameConstants  numPointLights(int numPointLights);
         int             numPointLights();

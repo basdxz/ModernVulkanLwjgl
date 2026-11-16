@@ -463,6 +463,7 @@ public final class Application {
     private @Nullable StructArray<Light> m_lights;
     // std::vector<uint32_t> m_lightIndices;
     private int m_numLights = 0;
+    private int m_numDirLights = 0;
     private int m_numPointLights = 0;
     private int m_numSpotLights = 0;
 
@@ -2522,7 +2523,8 @@ public final class Application {
                      .y((float) lightPos.y)
                      .z((float) lightPos.z);
 
-                if (light.type() == LightType.spot.ordinal()) {
+                val lightType = LightType.values()[light.type()];
+                if (lightType == LightType.directional || lightType == LightType.spot) {
                     val lightDir = new Vector4d(0D, 0D, -1D, 0D).mul(matWorld);
                     light.direction()
                          .x((float) lightDir.x)
@@ -2645,6 +2647,7 @@ public final class Application {
                        .materialBufferAddress(materialBuffer.deviceAddress)
                        .renderItemsAddress(renderItemBuffer.deviceAddress)
                        .lightsBufferAddress(lightsBuffer.deviceAddress)
+                       .numPointLights(m_numDirLights)
                        .numPointLights(m_numPointLights)
                        .numSpotLights(m_numSpotLights);
 
@@ -3328,16 +3331,17 @@ public final class Application {
         val lightIds = new int[numLights];
 
         for (var i = 0; i < numLights; i++) {
-            val rawType = Objects.requireNonNullElse(gltfLightsRaw.get(i)
-                                                                  .get("type"), "unknown");
-            //noinspection SwitchStatementWithTooFewBranches
-            val type = switch ((String) rawType) {
-                case "spot" -> LightType.spot;
-                default -> LightType.point;
-            };
-
             val gltfLight = gltfLightList.get(i);
             val light = m_lights.get(m_numLights++);
+
+            val rawType = Objects.requireNonNullElse(gltfLightsRaw.get(i)
+                                                                  .get("type"), "unknown");
+            val type = switch ((String) rawType) {
+                case "spot" -> LightType.spot;
+                case "directional" -> LightType.directional;
+                default -> LightType.point;
+            };
+            light.type(type.ordinal());
 
             // Defaults
             // @formatter:off
@@ -3365,8 +3369,8 @@ public final class Application {
 
             lightIds[i] = m_numLights;
 
-            light.type(type.ordinal());
             switch (type) {
+                case directional -> m_numDirLights++;
                 case point -> m_numPointLights++;
                 case spot -> {
                     val gltfSpot = gltfLight.getSpot();
